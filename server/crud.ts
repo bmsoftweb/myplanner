@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { pool } from './db.js';
-import { tenantId } from './auth.js';
+import { tenantId, sessaoDaRequisicao } from './auth.js';
 import {
   RESOURCES,
   FieldDef,
@@ -218,9 +218,10 @@ export function createCrudRouter() {
     if (!resource) {
       throw new Error(`Recurso "${req.params.resource}" não existe no módulo administrativo.`);
     }
-    // Esconder o item no menu não basta: a rota também recusa. Só o dono da
-    // conta (que não tem linha em usuarios, logo x-id-usuario = 0) passa aqui.
-    if (resource.somentePrincipal && Number(req.header('x-id-usuario')) > 0) {
+    // Esconder o item no menu não basta: a rota também recusa. Quem é o dono da
+    // conta sai do cookie assinado (idUsuario = 0), e não de nada que o
+    // navegador possa escolher.
+    if (resource.somentePrincipal && (sessaoDaRequisicao(req)?.idUsuario ?? 0) > 0) {
       throw new Error(`Somente o e-mail principal da conta tem acesso a ${resource.label}.`);
     }
     return resource;
