@@ -323,9 +323,14 @@ function queryLancamentos(filtros: FiltrosLancamentos): string {
   return qs.toString();
 }
 
-export async function listarLancamentos(
-  filtros: FiltrosLancamentos,
-): Promise<{ data: Lancamento[]; total: number; totais: { previsto: number; realizado: number } }> {
+export async function listarLancamentos(filtros: FiltrosLancamentos): Promise<{
+  data: Lancamento[];
+  total: number;
+  /** Verdadeiro quando o servidor cortou a listagem no teto de linhas */
+  limitado?: boolean;
+  limite?: number;
+  totais: { previsto: number; realizado: number };
+}> {
   return parseOrThrow(await fetch(`/api/lancamentos?${queryLancamentos(filtros)}`, { headers: headers() }));
 }
 

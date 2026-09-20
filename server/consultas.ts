@@ -132,7 +132,12 @@ export function createConsultasRouter() {
       }
 
       const preparada = prepararConsulta(texto, idEmp, valores);
-      const [linhas, campos] = await pool.query<any[]>(`${preparada.texto} LIMIT 5000`, preparada.params);
+      // O teto vai por fora: grudar " LIMIT 5000" no fim quebraria uma consulta
+      // que já tivesse o seu próprio LIMIT.
+      const [linhas, campos] = await pool.query<any[]>(
+        `SELECT * FROM (${preparada.texto}) AS resultado LIMIT 5000`,
+        preparada.params,
+      );
 
       res.json({
         titulo: consultas[0].titulo,

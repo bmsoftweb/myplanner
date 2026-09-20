@@ -123,6 +123,8 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
 
   const [linhas, setLinhas] = useState<Lancamento[]>([]);
   const [totais, setTotais] = useState({ previsto: 0, realizado: 0 });
+  /** Quando o período pega mais linhas do que o servidor devolve de uma vez */
+  const [corte, setCorte] = useState<{ total: number; limite: number } | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [selecionado, setSelecionado] = useState<Lancamento | null>(null);
@@ -149,6 +151,7 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
       const r = await listarLancamentos(filtrosAplicados.current);
       setLinhas(r.data);
       setTotais(r.totais);
+      setCorte(r.limitado ? { total: r.total, limite: r.limite || r.data.length } : null);
       onCountChange(r.total);
     } catch (e: any) {
       setErro(e.message || 'Falha ao carregar os lançamentos.');
@@ -1152,8 +1155,17 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
 
         <div className="ml-auto text-xs text-stone-500 dark:text-stone-400">
           Mostrando <strong>{linhas.length}</strong> registro(s)
+          {corte && <> de <strong>{corte.total}</strong></>}
         </div>
       </div>
+
+      {corte && (
+        <div className="px-4 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          O período escolhido tem {corte.total} lançamentos e a tela mostra os {corte.limite} primeiros.
+          Os totais abaixo consideram o período inteiro. Reduza o período para ver todos.
+        </div>
+      )}
 
       {combos && !podeIncluir && (
         <div className="px-4 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">

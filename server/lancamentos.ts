@@ -5,6 +5,9 @@ import path from 'path';
 import { pool, hojeBrasilia } from './db.js';
 import { tenantId, lerConfig, planoPorId } from './auth.js';
 
+/** Teto de linhas devolvidas pela listagem, para a resposta não crescer sem limite */
+const MAX_LINHAS_LISTA = 5000;
+
 /** Pasta dos comprovantes anexados aos lançamentos */
 export const PASTA_UPLOAD = path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
 
@@ -283,7 +286,8 @@ async function situacaoDoPlano(idEmp: number) {
   const plano = planoPorId(Number(conta[0]?.id_plano || 1));
   const [uso] = await pool.query<any[]>(
     `SELECT COUNT(*) AS c FROM lancamentos
-      WHERE id_emp = ? AND EXTRACT(YEAR_MONTH FROM datahora_inclusao) = EXTRACT(YEAR_MONTH FROM CURRENT_DATE)`,
+      WHERE id_emp = ? AND datahora_inclusao >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01')
+        AND datahora_inclusao <  DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') + INTERVAL 1 MONTH`,
     [idEmp],
   );
   const usados = Number(uso[0]?.c || 0);
@@ -307,31 +311,38 @@ export function createLancamentosRouter() {
   router.get('/lancamentos/combos', async (req: Request, res: Response) => {
     try {
       const idEmp = tenantId(req);
-      const [categorias] = await pool.query<any[]>(
-        'SELECT Id, codigo, descricao, tipo FROM categorias WHERE id_emp = ? ORDER BY codigo, descricao',
-        [idEmp],
-      );
-      const [subcategorias] = await pool.query<any[]>(
-        'SELECT Id, id_cat, codigo, descricao FROM categorias_sub WHERE id_emp = ? ORDER BY codigo, descricao',
-        [idEmp],
-      );
-      const [centros] = await pool.query<any[]>(
-        'SELECT Id, descricao FROM centroscustos WHERE id_emp = ? ORDER BY descricao',
-        [idEmp],
-      );
-      const [bancos] = await pool.query<any[]>(
-        'SELECT Id, descricao, apelido FROM bancos WHERE id_emp = ? ORDER BY descricao',
-        [idEmp],
-      );
-      const [limites] = await pool.query<any[]>(
-        'SELECT Id, descricao, cartao_credito, dia_fechamento, dia_vencimento FROM limites WHERE id_emp = ? ORDER BY descricao',
-        [idEmp],
-      );
-      const [metas] = await pool.query<any[]>(
-        'SELECT id AS Id, descricao FROM metas WHERE id_emp = ? ORDER BY descricao',
-        [idEmp],
-      );
-      const [tiposDoc] = await pool.query<any[]>('SELECT tipo, descricao FROM tipos_doc ORDER BY descricao');
+
+      // Nove consultas independentes: em paralelo, o custo é o da mais lenta
+      const [
+        [categorias],
+        [subcategorias],
+        [centros],
+        [bancos],
+        [limites],
+        [metas],
+        [tiposDoc],
+        config,
+        plano,
+      ] = await Promise.all([
+        pool.query<any[]>(
+          'SELECT Id, codigo, descricao, tipo FROM categorias WHERE id_emp = ? ORDER BY codigo, descricao',
+          [idEmp],
+        ),
+        pool.query<any[]>(
+          'SELECT Id, id_cat, codigo, descricao FROM categorias_sub WHERE id_emp = ? ORDER BY codigo, descricao',
+          [idEmp],
+        ),
+        pool.query<any[]>('SELECT Id, descricao FROM centroscustos WHERE id_emp = ? ORDER BY descricao', [idEmp]),
+        pool.query<any[]>('SELECT Id, descricao, apelido FROM bancos WHERE id_emp = ? ORDER BY descricao', [idEmp]),
+        pool.query<any[]>(
+          'SELECT Id, descricao, cartao_credito, dia_fechamento, dia_vencimento FROM limites WHERE id_emp = ? ORDER BY descricao',
+          [idEmp],
+        ),
+        pool.query<any[]>('SELECT id AS Id, descricao FROM metas WHERE id_emp = ? ORDER BY descricao', [idEmp]),
+        pool.query<any[]>('SELECT tipo, descricao FROM tipos_doc ORDER BY descricao'),
+        lerConfig(idEmp),
+        situacaoDoPlano(idEmp),
+      ]);
 
       res.json({
         categorias,
@@ -341,8 +352,8 @@ export function createLancamentosRouter() {
         limites: limites.map((l) => ({ ...l, cartao_credito: String(l.cartao_credito || 'N').toUpperCase() })),
         metas,
         tiposDoc,
-        config: await lerConfig(idEmp),
-        plano: await situacaoDoPlano(idEmp),
+        config,
+        plano,
       });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -357,24 +368,40 @@ export function createLancamentosRouter() {
       const idEmp = tenantId(req);
       const { sql, params } = montarFiltro(req, idEmp);
 
-      const [linhas] = await pool.query<any[]>(
-        `${SELECT_LANCAMENTO} WHERE ${sql} ORDER BY a.data_sort, a.Id`,
-        params,
-      );
+      // "Todos" pode pegar o histórico inteiro: sem teto, a resposta chega a
+      // dezenas de MB e o navegador trava montando as linhas.
+      const [linhas, [resumo]] = await Promise.all([
+        pool.query<any[]>(
+          `${SELECT_LANCAMENTO} WHERE ${sql} ORDER BY a.data_sort, a.Id LIMIT ?`,
+          [...params, MAX_LINHAS_LISTA],
+        ),
+        // Os totais saem do banco, sobre o filtro inteiro: se saíssem das linhas
+        // devolvidas, ficariam errados justamente quando o teto corta.
+        pool.query<any[]>(
+          `SELECT
+             COALESCE(SUM(IF(c.tipo = 'R', 1, -1) * COALESCE(a.valor_previsto, 0)), 0)  AS previsto,
+             COALESCE(SUM(IF(c.tipo = 'R', 1, -1) * COALESCE(a.valor_realizado, 0)), 0) AS realizado,
+             COUNT(*) AS total
+           FROM lancamentos a
+           LEFT JOIN categorias_sub b ON b.Id = a.id_categoria
+           LEFT JOIN categorias     c ON c.Id = b.id_cat
+          WHERE ${sql}`,
+          params,
+        ),
+      ]);
 
-      // Totais no rodapé: receitas somam, despesas subtraem
-      let previsto = 0;
-      let realizado = 0;
-      for (const l of linhas) {
-        const sinal = l.mais_ou_menos === '+' ? 1 : -1;
-        previsto += sinal * Number(l.valor_previsto || 0);
-        realizado += sinal * Number(l.valor_realizado || 0);
-      }
+      const total = Number(resumo[0]?.total || 0);
 
       res.json({
-        data: linhas,
-        total: linhas.length,
-        totais: { previsto, realizado },
+        data: linhas[0],
+        total,
+        // Avisa a tela quando houve corte, para ela não dizer que mostrou tudo
+        limitado: total > MAX_LINHAS_LISTA,
+        limite: MAX_LINHAS_LISTA,
+        totais: {
+          previsto: Number(resumo[0]?.previsto || 0),
+          realizado: Number(resumo[0]?.realizado || 0),
+        },
       });
     } catch (err: any) {
       res.status(400).json({ error: err.message });

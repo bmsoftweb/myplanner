@@ -458,7 +458,8 @@ export function createAuthRouter() {
       // Lançamentos já feitos no mês, para mostrar quanto do plano foi usado
       const [uso] = await pool.query<any[]>(
         `SELECT COUNT(*) AS c FROM lancamentos
-          WHERE id_emp = ? AND EXTRACT(YEAR_MONTH FROM datahora_inclusao) = EXTRACT(YEAR_MONTH FROM CURRENT_DATE)`,
+          WHERE id_emp = ? AND datahora_inclusao >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01')
+        AND datahora_inclusao <  DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') + INTERVAL 1 MONTH`,
         [idEmp],
       );
       res.json({

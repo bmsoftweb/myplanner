@@ -27,8 +27,19 @@ export function createBancosRouter() {
       if (!bancos.length) return res.status(404).json({ error: 'Banco não encontrado nesta conta.' });
       const banco = bancos[0];
 
-      // Todo o movimento conciliado da conta, do mais antigo ao mais novo:
-      // é sobre ele que o saldo é acumulado.
+      // O que é anterior ao período vira um número só, somado no banco: não há
+      // por que trazer o histórico inteiro da conta para exibir um mês.
+      const [anterior] = await pool.query<any[]>(
+        `SELECT COALESCE(SUM(IF(c.tipo = 'R', a.valor_realizado, -a.valor_realizado)), 0) AS soma
+           FROM lancamentos a
+           LEFT JOIN categorias_sub b ON b.Id = a.id_categoria
+           LEFT JOIN categorias     c ON c.Id = b.id_cat
+          WHERE a.id_emp = ? AND a.id_banco = ?
+            AND a.data_realizado IS NOT NULL AND a.data_realizado < ?`,
+        [idEmp, idBanco, d1],
+      );
+
+      // Só o movimento do período pedido
       const [movimento] = await pool.query<any[]>(
         `SELECT a.Id AS id_lanc,
                 a.data_realizado AS data,
@@ -46,17 +57,17 @@ export function createBancosRouter() {
            LEFT JOIN tipos_doc      d ON d.tipo = a.tipo_doc
            LEFT JOIN centroscustos  f ON f.Id   = a.id_cc
            LEFT JOIN limites        g ON g.Id   = a.id_limite
-          WHERE a.id_emp = ? AND a.id_banco = ? AND a.data_realizado IS NOT NULL
+          WHERE a.id_emp = ? AND a.id_banco = ?
+            AND a.data_realizado BETWEEN ? AND ?
           ORDER BY a.data_realizado, a.Id`,
-        [idEmp, idBanco],
+        [idEmp, idBanco, d1, d2],
       );
 
-      // O saldo inicial abre o extrato; tudo que é anterior ao período pedido
-      // entra apenas como saldo anterior.
-      const linhas: any[] = [];
-      let saldo = Number(banco.saldo_inicial || 0);
-      let saldoAnterior = saldo;
+      // O saldo inicial da conta entra antes de tudo, como no sistema original
+      const saldoAnterior = Number(banco.saldo_inicial || 0) + Number(anterior[0]?.soma || 0);
+      let saldo = saldoAnterior;
 
+      const linhas: any[] = [];
       const dataSaldo = banco.data_saldo_inicial || '';
       if (dataSaldo && dataSaldo >= d1 && dataSaldo <= d2) {
         linhas.push({
@@ -75,13 +86,7 @@ export function createBancosRouter() {
       }
 
       for (const m of movimento) {
-        const valor = Number(m.valor || 0) * (m.es === '+' ? 1 : -1);
-        saldo += valor;
-        if (m.data < d1) {
-          saldoAnterior = saldo;
-          continue;
-        }
-        if (m.data > d2) break;
+        saldo += Number(m.valor || 0) * (m.es === '+' ? 1 : -1);
         linhas.push({ ...m, valor: Number(m.valor || 0), saldo });
       }
 

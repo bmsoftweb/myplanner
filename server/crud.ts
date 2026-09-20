@@ -185,6 +185,17 @@ function semSenhas(resource: ResourceDef, linhas: any[]): any[] {
   });
 }
 
+/**
+ * Lista de colunas do SELECT, a partir do metadado — nunca "t.*".
+ * Assim não vão para o navegador colunas que a tela não conhece: os blobs
+ * (consultas.arquivo_fr3, patrimonio.foto) e colunas internas como config_listas.
+ */
+function selectColunas(resource: ResourceDef): string {
+  return columnNames(resource)
+    .map((c) => `t.${col(c)}`)
+    .join(', ');
+}
+
 /** Decompõe o parâmetro :id em condição WHERE respeitando chaves compostas */
 function pkCondition(resource: ResourceDef, idParam: string): { sql: string; params: any[] } {
   const parts = String(idParam).split(PK_SEPARATOR);
@@ -358,7 +369,7 @@ export function createCrudRouter() {
       const total = Number(countRows[0]?.total || 0);
 
       const [rows] = await pool.query<any[]>(
-        `SELECT t.* FROM ${resource.table} t
+        `SELECT ${selectColunas(resource)} FROM ${resource.table} t
           WHERE ${whereSql}
           ORDER BY t.${col(sortField)} ${sortDir}
           LIMIT ? OFFSET ?`,
@@ -387,7 +398,7 @@ export function createCrudRouter() {
       const cond = pkCondition(resource, req.params.id);
 
       const [rows] = await pool.query<any[]>(
-        `SELECT t.* FROM ${resource.table} t WHERE ${resource.scopeSql} AND ${cond.sql} LIMIT 1`,
+        `SELECT ${selectColunas(resource)} FROM ${resource.table} t WHERE ${resource.scopeSql} AND ${cond.sql} LIMIT 1`,
         [idEmp, ...cond.params],
       );
 

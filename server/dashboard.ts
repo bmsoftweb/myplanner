@@ -19,47 +19,50 @@ export function createDashboardRouter() {
     try {
       const idEmp = tenantId(req);
 
+      // As consultas abaixo são independentes: numa conexão remota, rodar em
+      // paralelo troca a soma das latências pela maior delas.
+      const [
+        [contagens],
+        [medidor],
+        [porMes],
+        [hojeTotais],
+        [hojeItens],
+        [despesas],
+        [saldos],
+        [limites],
+      ] = await Promise.all([
       // ---- Contagens dos cadastros, usadas nos selos da barra lateral ----
-      const contagens: Record<string, string> = {
-        lancamentos: 'SELECT COUNT(*) c FROM lancamentos WHERE id_emp = ?',
-        categorias: 'SELECT COUNT(*) c FROM categorias WHERE id_emp = ?',
-        categorias_sub: 'SELECT COUNT(*) c FROM categorias_sub WHERE id_emp = ?',
-        bancos: 'SELECT COUNT(*) c FROM bancos WHERE id_emp = ?',
-        centroscustos: 'SELECT COUNT(*) c FROM centroscustos WHERE id_emp = ?',
-        limites: 'SELECT COUNT(*) c FROM limites WHERE id_emp = ?',
-        metas: 'SELECT COUNT(*) c FROM metas WHERE id_emp = ?',
-        moedas: 'SELECT COUNT(*) c FROM moedas WHERE id_emp = ?',
-        patrimonio: 'SELECT COUNT(*) c FROM patrimonio WHERE id_emp = ?',
-        usuarios: 'SELECT COUNT(*) c FROM usuarios WHERE id_emp = ?',
-        tipos_doc: 'SELECT COUNT(*) c FROM tipos_doc WHERE ? > 0',
-      };
-
-      const counts: Record<string, number> = {};
-      for (const [chave, sql] of Object.entries(contagens)) {
-        try {
-          const [linhas] = await pool.query<any[]>(sql, [idEmp]);
-          counts[chave] = Number(linhas[0]?.c || 0);
-        } catch {
-          counts[chave] = 0;
-        }
-      }
+      pool.query<any[]>(
+        `SELECT
+           (SELECT COUNT(*) FROM lancamentos    WHERE id_emp = ?) AS lancamentos,
+           (SELECT COUNT(*) FROM categorias     WHERE id_emp = ?) AS categorias,
+           (SELECT COUNT(*) FROM categorias_sub WHERE id_emp = ?) AS categorias_sub,
+           (SELECT COUNT(*) FROM bancos         WHERE id_emp = ?) AS bancos,
+           (SELECT COUNT(*) FROM centroscustos  WHERE id_emp = ?) AS centroscustos,
+           (SELECT COUNT(*) FROM limites        WHERE id_emp = ?) AS limites,
+           (SELECT COUNT(*) FROM metas          WHERE id_emp = ?) AS metas,
+           (SELECT COUNT(*) FROM moedas         WHERE id_emp = ?) AS moedas,
+           (SELECT COUNT(*) FROM patrimonio     WHERE id_emp = ?) AS patrimonio,
+           (SELECT COUNT(*) FROM usuarios       WHERE id_emp = ?) AS usuarios,
+           (SELECT COUNT(*) FROM tipos_doc)                       AS tipos_doc`,
+        Array(10).fill(idEmp),
+      ),
 
       // ---- 1. Previsto × realizado das despesas do mês corrente ----
-      const [medidor] = await pool.query<any[]>(
+      pool.query<any[]>(
         `SELECT COALESCE(SUM(COALESCE(a.valor_previsto, 0)), 0)  AS previsto,
                 COALESCE(SUM(COALESCE(a.valor_realizado, 0)), 0) AS realizado
            FROM lancamentos a
            LEFT JOIN categorias_sub b ON b.Id = a.id_categoria
            LEFT JOIN categorias     c ON c.Id = b.id_cat
           WHERE a.id_emp = ? AND a.analise = 'S' AND c.tipo = 'D'
-            AND EXTRACT(YEAR_MONTH FROM a.data_sort) = EXTRACT(YEAR_MONTH FROM CURRENT_DATE)`,
+            AND a.data_sort >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01')
+            AND a.data_sort <  DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') + INTERVAL 1 MONTH`,
         [idEmp],
-      );
-      const previstoMes = Number(medidor[0]?.previsto || 0);
-      const realizadoMes = Number(medidor[0]?.realizado || 0);
+      ),
 
       // ---- 2. Receitas × despesas realizadas nos últimos 12 meses ----
-      const [porMes] = await pool.query<any[]>(
+      pool.query<any[]>(
         `SELECT DATE_FORMAT(a.data_sort, '%m/%Y') AS anomes,
                 EXTRACT(YEAR_MONTH FROM a.data_sort) AS ordem,
                 COALESCE(SUM(IF(c.tipo = 'R', COALESCE(a.valor_realizado, 0), 0)), 0) AS receitas,
@@ -73,10 +76,10 @@ export function createDashboardRouter() {
           GROUP BY ordem, anomes
           ORDER BY ordem`,
         [idEmp],
-      );
+      ),
 
       // ---- 3. O que está pendente com data de hoje ----
-      const [hojeTotais] = await pool.query<any[]>(
+      pool.query<any[]>(
         `SELECT COALESCE(SUM(IF(c.tipo = 'R', COALESCE(a.valor_realizado, 0), 0)), 0) AS receitas,
                 COALESCE(SUM(IF(c.tipo = 'D', COALESCE(a.valor_realizado, 0), 0)), 0) AS despesas
            FROM lancamentos a
@@ -84,9 +87,9 @@ export function createDashboardRouter() {
            LEFT JOIN categorias     c ON c.Id = b.id_cat
           WHERE a.id_emp = ? AND a.data_realizado = CURRENT_DATE AND a.status = 'P'`,
         [idEmp],
-      );
+      ),
 
-      const [hojeItens] = await pool.query<any[]>(
+      pool.query<any[]>(
         `SELECT b.descricao AS categoria,
                 a.historico,
                 c.descricao AS tipo_documento,
@@ -99,29 +102,28 @@ export function createDashboardRouter() {
           WHERE a.id_emp = ? AND a.data_realizado = CURRENT_DATE AND a.status = 'P'
           ORDER BY d.tipo DESC, d.codigo, b.codigo`,
         [idEmp],
-      );
+      ),
 
       // ---- 4. As cinco maiores despesas por sub-categoria, mais "Outros" ----
-      const [despesas] = await pool.query<any[]>(
-        `SELECT b.descricao,
-                COALESCE(SUM(COALESCE(a.valor_realizado, 0)), 0) AS valor
-           FROM lancamentos a
-           LEFT JOIN categorias_sub b ON b.Id = a.id_categoria
-           LEFT JOIN categorias     c ON c.Id = b.id_cat
-          WHERE a.id_emp = ? AND b.relatorio = 'S' AND c.tipo = 'D'
-          GROUP BY a.id_categoria, b.descricao
-          ORDER BY valor DESC`,
+      // Soma primeiro os lançamentos por sub-categoria e só então junta os nomes.
+      // Filtrando pelas tabelas de apoio, o otimizador começava por elas e varria
+      // os lançamentos uma vez por sub-categoria (264 varreduras, ~4 s).
+      pool.query<any[]>(
+        `SELECT b.descricao, t.valor
+           FROM (
+                 SELECT a.id_categoria, SUM(COALESCE(a.valor_realizado, 0)) AS valor
+                   FROM lancamentos a
+                  WHERE a.id_emp = ?
+                  GROUP BY a.id_categoria
+                ) t
+           JOIN categorias_sub b ON b.Id  = t.id_categoria AND b.relatorio = 'S'
+           JOIN categorias     c ON c.Id  = b.id_cat       AND c.tipo = 'D'
+          ORDER BY t.valor DESC`,
         [idEmp],
-      );
-      const maioresDespesas = despesas.slice(0, 5).map((d) => ({
-        descricao: d.descricao || '(sem sub-categoria)',
-        valor: Number(d.valor || 0),
-      }));
-      const outros = despesas.slice(5).reduce((soma, d) => soma + Number(d.valor || 0), 0);
-      if (outros > 0) maioresDespesas.push({ descricao: 'Outros', valor: outros });
+      ),
 
       // ---- Saldo de cada banco: saldo inicial mais o realizado conciliado ----
-      const [saldos] = await pool.query<any[]>(
+      pool.query<any[]>(
         `SELECT bc.Id, bc.descricao, COALESCE(bc.apelido, '') AS apelido,
                 COALESCE(bc.saldo_inicial, 0) + COALESCE((
                   SELECT SUM(IF(c.tipo = 'R', COALESCE(a.valor_realizado, 0), -COALESCE(a.valor_realizado, 0)))
@@ -135,10 +137,10 @@ export function createDashboardRouter() {
           WHERE bc.id_emp = ?
           ORDER BY bc.descricao`,
         [idEmp],
-      );
+      ),
 
       // ---- Consumo dos limites no mês corrente ----
-      const [limites] = await pool.query<any[]>(
+      pool.query<any[]>(
         `SELECT l.Id, l.descricao,
                 COALESCE(lm.valor, l.limite_mensal, 0) AS limite,
                 UPPER(COALESCE(l.cartao_credito, 'N')) AS cartao,
@@ -146,7 +148,8 @@ export function createDashboardRouter() {
                   SELECT SUM(COALESCE(a.valor_realizado, 0))
                     FROM lancamentos a
                    WHERE a.id_limite = l.Id AND a.id_emp = l.id_emp
-                     AND EXTRACT(YEAR_MONTH FROM a.data_realizado) = EXTRACT(YEAR_MONTH FROM CURRENT_DATE)
+                     AND a.data_realizado >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01')
+                     AND a.data_realizado <  DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') + INTERVAL 1 MONTH
                 ), 0) AS usado
            FROM limites l
            LEFT JOIN limites_mensais lm
@@ -155,7 +158,22 @@ export function createDashboardRouter() {
           WHERE l.id_emp = ?
           ORDER BY l.descricao`,
         [idEmp],
+      ),
+      ]);
+
+      const counts: Record<string, number> = Object.fromEntries(
+        Object.entries(contagens[0] || {}).map(([chave, valor]) => [chave, Number(valor || 0)]),
       );
+
+      const previstoMes = Number(medidor[0]?.previsto || 0);
+      const realizadoMes = Number(medidor[0]?.realizado || 0);
+
+      const maioresDespesas = despesas.slice(0, 5).map((d) => ({
+        descricao: d.descricao || '(sem sub-categoria)',
+        valor: Number(d.valor || 0),
+      }));
+      const outros = despesas.slice(5).reduce((soma, d) => soma + Number(d.valor || 0), 0);
+      if (outros > 0) maioresDespesas.push({ descricao: 'Outros', valor: outros });
 
       res.json({
         counts,

@@ -45,8 +45,9 @@ const SQL_PLANEJAMENTO = `
              0 AS realizado
         FROM lancamentos
        WHERE id_emp = ? AND analise = 'S'
-         AND COALESCE(valor_previsto, 0) > 0
-         AND YEAR(data_prevista) = ?
+         AND valor_previsto > 0
+         -- faixa em vez de YEAR(data_prevista): assim o índice da coluna é usado
+         AND data_prevista >= ? AND data_prevista < ?
        GROUP BY id_categoria, MONTH(data_prevista)
 
       UNION ALL
@@ -57,8 +58,8 @@ const SQL_PLANEJAMENTO = `
              SUM(COALESCE(valor_realizado, 0)) AS realizado
         FROM lancamentos
        WHERE id_emp = ? AND analise = 'S'
-         AND COALESCE(valor_realizado, 0) > 0
-         AND YEAR(data_realizado) = ?
+         AND valor_realizado > 0
+         AND data_realizado >= ? AND data_realizado < ?
        GROUP BY id_categoria, MONTH(data_realizado)
   ) m ON m.id_categoria = sub.Id
   WHERE sub.id_emp = ?
@@ -77,7 +78,13 @@ export function createPlanejamentoRouter() {
       const ano = Number(req.query.ano) || new Date().getFullYear();
       if (ano < 1900 || ano > 2999) return res.status(400).json({ error: 'Ano inválido.' });
 
-      const [linhas] = await pool.query<any[]>(SQL_PLANEJAMENTO, [idEmp, ano, idEmp, ano, idEmp]);
+      const inicio = `${ano}-01-01`;
+      const fim = `${ano + 1}-01-01`;
+      const [linhas] = await pool.query<any[]>(SQL_PLANEJAMENTO, [
+        idEmp, inicio, fim,
+        idEmp, inicio, fim,
+        idEmp,
+      ]);
 
       const dados = linhas.map((l) => {
         const meses = [];
@@ -140,7 +147,7 @@ export function createPlanejamentoRouter() {
 
       // Mês 0 = a coluna de total: o ano inteiro
       const filtroMes = mes >= 1 && mes <= 12 ? `AND MONTH(a.${campoData}) = ?` : '';
-      const params: any[] = [idEmp, idSubCat, ano];
+      const params: any[] = [idEmp, idSubCat, `${ano}-01-01`, `${ano + 1}-01-01`];
       if (filtroMes) params.push(mes);
 
       const [linhas] = await pool.query<any[]>(
@@ -154,8 +161,8 @@ export function createPlanejamentoRouter() {
            LEFT JOIN bancos        e ON e.Id   = a.id_banco
            LEFT JOIN centroscustos f ON f.Id   = a.id_cc
           WHERE a.id_emp = ? AND a.id_categoria = ? AND a.analise = 'S'
-            AND COALESCE(a.${campoValor}, 0) > 0
-            AND YEAR(a.${campoData}) = ? ${filtroMes}
+            AND a.${campoValor} > 0
+            AND a.${campoData} >= ? AND a.${campoData} < ? ${filtroMes}
           ORDER BY a.${campoData}, a.Id`,
         params,
       );
