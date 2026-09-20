@@ -81,7 +81,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
     setCarregando(true);
     setErro(null);
     try {
-      const dados = await entrar(emailLimpo, senha);
+      const dados = await entrar(emailLimpo, senha, lembrar);
       if (lembrar) salvarLembrete(emailLimpo);
       else limparLembrete();
       onLoginSuccess(dados.usuario, dados.conta, dados.config, lembrar);

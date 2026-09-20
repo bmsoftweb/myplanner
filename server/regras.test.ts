@@ -6,10 +6,12 @@
  * Roda sem framework:  npx tsx server/regras.test.ts
  */
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { vencimentoDaFatura, gerarDatasRecorrentes } from './lancamentos.js';
 import { lerOfx } from './bancos.js';
 import { prepararConsulta } from './consultas.js';
 import { vencimentoDaJanela } from './limites.js';
+import { criarToken, lerToken } from './sessao.js';
 import {
   paraDigitos,
   paraCanonico,
@@ -183,5 +185,41 @@ assert.equal(paraExibicao(paraDigitos('', 2), 2), '');
 assert.equal(paraCanonico(aplicarColagem('R$ 1.467,45', 2, false)!, 2), '1467.45');
 assert.equal(paraCanonico(aplicarColagem('1467.45', 2, false)!, 2), '1467.45');
 assert.equal(aplicarColagem('abc', 2, false), null);
+
+// ------------------------------------------------------------
+// Sessão assinada em cookie
+// ------------------------------------------------------------
+{
+  const token = criarToken({ idEmp: 2, idUsuario: 1 });
+
+  // Um token íntegro volta com a mesma identidade
+  const { sessao } = lerToken(token);
+  assert.ok(sessao);
+  assert.equal(sessao!.idEmp, 2);
+  assert.equal(sessao!.idUsuario, 1);
+
+  // Trocar a conta no corpo invalida a assinatura — é o ataque que existia
+  // quando a conta vinha num cabeçalho escolhido pelo cliente
+  const [corpo, assinatura] = token.split('.');
+  const adulterado = JSON.parse(Buffer.from(corpo, 'base64url').toString());
+  adulterado.idEmp = 7;
+  const corpoTrocado = Buffer.from(JSON.stringify(adulterado)).toString('base64url');
+  assert.equal(lerToken(`${corpoTrocado}.${assinatura}`).motivo, 'assinatura');
+
+  // Assinatura de outro tamanho não pode estourar no timingSafeEqual
+  assert.equal(lerToken(`${corpo}.xx`).motivo, 'assinatura');
+
+  // Formas inválidas têm motivo próprio, para dar para investigar um relato
+  assert.equal(lerToken(undefined).motivo, 'ausente');
+  assert.equal(lerToken('semponto').motivo, 'malformado');
+
+  // Token vencido é recusado
+  const vencido = { idEmp: 2, idUsuario: 0, exp: Math.floor(Date.now() / 1000) - 10 };
+  const corpoVencido = Buffer.from(JSON.stringify(vencido)).toString('base64url');
+  const assinaturaVencido = createHmac('sha256', process.env.SESSION_SECRET!)
+    .update(corpoVencido)
+    .digest('base64url');
+  assert.equal(lerToken(`${corpoVencido}.${assinaturaVencido}`).motivo, 'expirada');
+}
 
 console.log('Todas as regras conferidas.');

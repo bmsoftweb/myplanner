@@ -38,9 +38,17 @@ Sem esses dois últimos a Vercel publica só o front e **toda chamada `/api` vir
 404**.
 
 Na Vercel é preciso cadastrar as variáveis de ambiente (Settings → Environment
-Variables), porque o `.env` não vai para o repositório: `MYSQL_HOST`,
-`MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` e, se for usar
-e-mail, as `SMTP_*`.
+Variables), porque o `.env` não vai para o repositório: **`SESSION_SECRET`**,
+`MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` e,
+se for usar e-mail, as `SMTP_*`.
+
+Sem `SESSION_SECRET` a API **não sobe** em produção, de propósito: é melhor o
+erro aparecer na publicação do que os usuários caírem sozinhos porque cada
+instância assinou o cookie com uma chave diferente. Gere um com:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
 
 Duas coisas que só funcionam onde há disco gravável:
 
@@ -168,6 +176,23 @@ A digitação numérica tem conferência executável em `server/regras.test.ts`.
 
 ## Segurança
 
+- **Sessão assinada em cookie** (`server/sessao.ts`). Quem diz de qual conta a
+  requisição pode ler e gravar é um cookie `httpOnly` assinado com HMAC-SHA256,
+  nunca um cabeçalho vindo do navegador. Antes o `id_emp` ia no cabeçalho
+  `x-id-emp`: trocar o número dava acesso aos dados de qualquer outra conta.
+  - A sessão é deslizante: cada requisição empurra o prazo, e o que desconecta é
+    ficar uma semana sem usar.
+  - "Lembrar-me neste computador" define se o cookie sobrevive ao fechar o
+    navegador.
+  - O `secure` sai do protocolo real da requisição (`x-forwarded-proto` atrás do
+    proxy da Vercel), e não de `NODE_ENV`: marcado como secure fora de HTTPS, o
+    navegador descarta o cookie e ninguém consegue entrar.
+  - `SESSION_SECRET` é **obrigatório em produção** e o servidor se recusa a subir
+    sem ele: em hospedagem com várias instâncias, cada uma assinaria com uma
+    chave própria e os usuários cairiam sozinhos.
+- **Tudo em `/api` exige sessão por padrão.** Só são públicas as rotas de quem
+  ainda não entrou (login, logout, cadastro, ativação, reenvio, recuperação de
+  senha e o diagnóstico do banco). Uma rota nova já nasce protegida.
 - Toda consulta é montada com whitelist de colunas do metadado; valores vão
   sempre como parâmetro. Nomes de coluna são protegidos por crases (há coluna
   chamada `sql`, palavra reservada no MySQL 8).

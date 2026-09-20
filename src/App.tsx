@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileText } from 'lucide-react';
 import { Conta, UsuarioSessao, ConfigUsuario, ResourceDef, DbConnectionStatus, DashboardData } from './types';
 import {
-  setSessaoApi, fetchResources, fetchDbStatus, fetchDashboard, invalidateOptions, validarSessao,
+  fetchResources, fetchDbStatus, fetchDashboard, invalidateOptions, validarSessao, sair as sairNoServidor,
 } from './services/api';
 import { limparConfigListas } from './utils/configListas';
 import { Sidebar } from './components/Sidebar';
@@ -76,11 +76,6 @@ export default function App() {
   const [usuario, setUsuario] = useState<UsuarioSessao | null>(() => lerSessao().usuario);
   const [config, setConfig] = useState<ConfigUsuario>(CONFIG_PADRAO);
 
-  // Os cabeçalhos da API precisam acompanhar toda requisição
-  useEffect(() => {
-    setSessaoApi(conta?.id ?? null, usuario?.id ?? null);
-  }, [conta?.id, usuario?.id]);
-
   // ----------------------------------------------------------
   // Navegação e estado geral
   // ----------------------------------------------------------
@@ -153,6 +148,8 @@ export default function App() {
   }, []);
 
   const sair = useCallback(() => {
+    // Só o servidor apaga o cookie de sessão, que é httpOnly
+    sairNoServidor();
     setUsuario(null);
     setConta(null);
     setResources([]);
@@ -161,7 +158,6 @@ export default function App() {
     setConfig(CONFIG_PADRAO);
     setActiveTab('dashboard');
     invalidateOptions();
-    setSessaoApi(null, null);
     limparConfigListas();
     limparSessao();
   }, []);
@@ -171,15 +167,19 @@ export default function App() {
   useEffect(() => {
     if (!usuario || !conta) return;
     let vivo = true;
-    setSessaoApi(conta.id, usuario.id);
     validarSessao().then((r) => {
       if (!vivo) return;
       if (r.valida === false) {
         sair();
         setAvisoLogin(r.error || 'Sua sessão expirou. Entre novamente.');
-      } else if (r.config) {
-        setConfig(r.config);
+        return;
       }
+      // Quem manda é o cookie: o que estava guardado no navegador pode estar
+      // velho (ou ter sido adulterado), então a identidade é substituída pela
+      // que o servidor devolveu.
+      if (r.conta) setConta(r.conta);
+      if (r.usuario) setUsuario(r.usuario);
+      if (r.config) setConfig(r.config);
     });
     return () => {
       vivo = false;
@@ -207,7 +207,6 @@ export default function App() {
         theme={theme}
         onToggleTheme={alternarTema}
         onLoginSuccess={(novoUsuario, novaConta, novaConfig, lembrar) => {
-          setSessaoApi(novaConta.id, novoUsuario.id);
           setUsuario(novoUsuario);
           setConta(novaConta);
           setConfig(novaConfig);

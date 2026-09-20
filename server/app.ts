@@ -10,6 +10,7 @@ import { createBancosRouter } from './bancos.js';
 import { createLimitesRouter } from './limites.js';
 import { createConsultasRouter } from './consultas.js';
 import { createCategoriasRouter } from './categorias.js';
+import { sessaoDaRequisicao, SemSessao } from './sessao.js';
 
 /**
  * Monta o app Express com todas as rotas /api, sem listen e sem Vite:
@@ -35,6 +36,31 @@ export function createApp() {
   // Saúde da conexão com o MySQL
   app.get('/api/db/status', async (_req, res) => {
     res.json(await checkDbHealth());
+  });
+
+  /**
+   * Tudo em /api exige sessão, menos o que é usado por quem ainda não entrou.
+   * A porta fica fechada por padrão: uma rota nova já nasce protegida, em vez de
+   * depender de o autor lembrar de pedir a conta.
+   */
+  const ROTAS_PUBLICAS = new Set([
+    '/db/status',
+    '/app/login',
+    '/app/logout',
+    '/app/cadastro',
+    '/app/ativar',
+    '/app/reenviar-chave',
+    '/app/recuperar-senha',
+  ]);
+
+  app.use('/api', (req, res, next) => {
+    if (ROTAS_PUBLICAS.has(req.path)) return next();
+
+    const { sessao, motivo } = sessaoDaRequisicao(req, res);
+    if (!sessao) {
+      return res.status(401).json({ error: new SemSessao(motivo).message, motivo });
+    }
+    next();
   });
 
   // Contas, login, configuração e preferências das listas

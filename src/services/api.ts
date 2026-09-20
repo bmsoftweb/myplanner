@@ -14,23 +14,13 @@ import {
 } from '../types';
 
 /**
- * O id_emp da sessão acompanha toda requisição no cabeçalho x-id-emp: é ele que
- * isola os dados da conta em todas as consultas do servidor. O x-id-usuario
- * distingue o dono da conta (0) de um usuário cadastrado dentro dela.
+ * Quem identifica a conta é o cookie de sessão, assinado pelo servidor e enviado
+ * pelo navegador em toda requisição de mesma origem. O frontend não manda (nem
+ * precisa saber) o id_emp: antes ele ia num cabeçalho, que qualquer pessoa podia
+ * trocar para ler e gravar os dados de outra conta.
  */
-let idEmpAtual: string | null = null;
-let idUsuarioAtual: string | null = null;
-
-export function setSessaoApi(idEmp: string | null, idUsuario: string | null) {
-  idEmpAtual = idEmp;
-  idUsuarioAtual = idUsuario;
-}
-
 function headers(extra: Record<string, string> = {}): Record<string, string> {
-  const h: Record<string, string> = { ...extra };
-  if (idEmpAtual) h['x-id-emp'] = idEmpAtual;
-  if (idUsuarioAtual !== null) h['x-id-usuario'] = idUsuarioAtual;
-  return h;
+  return { ...extra };
 }
 
 async function parseOrThrow(res: Response): Promise<any> {
@@ -54,13 +44,19 @@ export interface RespostaLogin {
   config: ConfigUsuario;
 }
 
-export async function entrar(email: string, senha: string): Promise<RespostaLogin> {
+export async function entrar(email: string, senha: string, lembrar: boolean): Promise<RespostaLogin> {
   const res = await fetch('/api/app/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, senha }),
+    // "lembrar" define se o cookie sobrevive ao fechar o navegador
+    body: JSON.stringify({ email, senha, lembrar }),
   });
   return parseOrThrow(res);
+}
+
+/** Encerra a sessão: só o servidor apaga o cookie, que é httpOnly */
+export async function sair(): Promise<void> {
+  await fetch('/api/app/logout', { method: 'POST' }).catch(() => {});
 }
 
 export async function cadastrar(dados: {
@@ -112,12 +108,22 @@ export async function recuperarSenha(email: string): Promise<{ success: boolean;
  * Só devolve false quando o servidor recusa; falha de rede devolve null, para
  * não derrubar ninguém por instabilidade.
  */
-export async function validarSessao(): Promise<{ valida: boolean | null; error?: string; config?: ConfigUsuario; id_plano?: number }> {
+export async function validarSessao(): Promise<{
+  valida: boolean | null;
+  error?: string;
+  config?: ConfigUsuario;
+  id_plano?: number;
+  /** Identidade autoritativa, vinda do cookie */
+  conta?: Conta;
+  usuario?: UsuarioSessao;
+}> {
   try {
     const res = await fetch('/api/app/sessao', { headers: headers() });
     const data = await res.json().catch(() => ({}));
     if (res.status === 401) return { valida: false, error: data?.error };
-    return res.ok ? { valida: true, config: data.config, id_plano: data.id_plano } : { valida: null, error: data?.error };
+    return res.ok
+      ? { valida: true, config: data.config, id_plano: data.id_plano, conta: data.conta, usuario: data.usuario }
+      : { valida: null, error: data?.error };
   } catch {
     return { valida: null };
   }
@@ -383,13 +389,6 @@ export async function enviarComprovante(id: string | number, arquivo: File): Pro
 
 export async function removerComprovante(id: string | number): Promise<{ success: boolean }> {
   return parseOrThrow(await fetch(`/api/lancamentos/${id}/comprovante`, { method: 'DELETE', headers: headers() }));
-}
-
-/** Monta a URL do CSV; o navegador baixa o arquivo direto do servidor */
-export function urlExportarLancamentos(filtros: FiltrosLancamentos): string {
-  const qs = new URLSearchParams(queryLancamentos(filtros));
-  if (idEmpAtual) qs.set('x_id_emp', idEmpAtual);
-  return `/api/lancamentos-exportar?${qs.toString()}`;
 }
 
 /** Baixa o CSV passando os cabeçalhos da sessão e salva pelo navegador */

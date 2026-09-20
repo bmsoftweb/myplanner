@@ -2,6 +2,12 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { pool, hojeBrasilia, agoraBrasilia } from './db.js';
 import { enviarEmail, corpoEmail, smtpConfigurado } from './mail.js';
+import {
+  sessaoDaRequisicao as lerSessaoDoCookie,
+  gravarSessao,
+  apagarSessao,
+  SemSessao,
+} from './sessao.js';
 
 /**
  * Contas, login e configuração.
@@ -79,18 +85,21 @@ export async function lerConfig(idEmp: number) {
   });
 }
 
-/** Dados da sessão lidos dos cabeçalhos enviados pelo frontend */
+/**
+ * Dados da sessão, lidos do cookie assinado.
+ *
+ * Nada aqui vem de cabeçalho escolhido pelo cliente: era assim antes, e trocar o
+ * x-id-emp na requisição dava acesso aos dados de qualquer outra conta.
+ */
 export function sessaoDaRequisicao(req: Request): { idEmp: number; idUsuario: number } | null {
-  const idEmp = Number(req.header('x-id-emp'));
-  const idUsuario = Number(req.header('x-id-usuario'));
-  if (!Number.isFinite(idEmp) || idEmp <= 0) return null;
-  return { idEmp, idUsuario: Number.isFinite(idUsuario) ? idUsuario : 0 };
+  const { sessao } = lerSessaoDoCookie(req, (req as any).res);
+  return sessao ? { idEmp: sessao.idEmp, idUsuario: sessao.idUsuario } : null;
 }
 
 /** O id_emp da sessão; lança quando não há sessão válida */
 export function tenantId(req: Request): number {
-  const sessao = sessaoDaRequisicao(req);
-  if (!sessao) throw new Error('Sessão inválida: conta não identificada. Entre novamente.');
+  const { sessao, motivo } = lerSessaoDoCookie(req, (req as any).res);
+  if (!sessao) throw new SemSessao(motivo);
   return sessao.idEmp;
 }
 
@@ -161,6 +170,10 @@ export function createAuthRouter() {
 
       const config = await lerConfig(Number(conta.Id));
 
+      // A partir daqui quem identifica a conta é este cookie, e não mais o que o
+      // navegador mandar nos cabeçalhos.
+      gravarSessao(req, res, { idEmp: Number(conta.Id), idUsuario: usuarioId }, Boolean(req.body?.lembrar));
+
       res.json({
         success: true,
         conta: {
@@ -196,7 +209,8 @@ export function createAuthRouter() {
       if (!sessao) return res.status(401).json({ valida: false, error: 'Sessão incompleta.' });
 
       const [linhas] = await pool.query<any[]>(
-        `SELECT Id, id_plano, ativado, ativo FROM empresas WHERE Id = ? LIMIT 1`,
+        `SELECT Id, nome, email, cpfcnpj, chave, id_plano, ativado, data_validade, ativo
+           FROM empresas WHERE Id = ? LIMIT 1`,
         [sessao.idEmp],
       );
       const conta = linhas[0];
@@ -204,21 +218,57 @@ export function createAuthRouter() {
         return res.status(401).json({ valida: false, error: 'Sua sessão não é mais válida. Entre novamente.' });
       }
 
-      // Um usuário secundário pode ter sido excluído depois do login
+      // Quem está usando: o dono da conta, ou um usuário que pode ter sido
+      // excluído depois do login
+      let usuarioNome = conta.nome || '';
+      let usuarioEmail = conta.email || '';
       if (sessao.idUsuario > 0) {
         const [us] = await pool.query<any[]>(
-          'SELECT Id FROM usuarios WHERE Id = ? AND id_emp = ? LIMIT 1',
+          'SELECT Id, nome, email FROM usuarios WHERE Id = ? AND id_emp = ? LIMIT 1',
           [sessao.idUsuario, sessao.idEmp],
         );
         if (!us.length) {
           return res.status(401).json({ valida: false, error: 'O seu acesso foi removido desta conta.' });
         }
+        usuarioNome = us[0].nome || '';
+        usuarioEmail = us[0].email || '';
       }
 
-      res.json({ valida: true, config: await lerConfig(sessao.idEmp), id_plano: Number(conta.id_plano || 1) });
+      // A identidade devolvida aqui é a do cookie, e é ela que a tela passa a
+      // exibir: o que estiver guardado no navegador não manda em nada.
+      res.json({
+        valida: true,
+        config: await lerConfig(sessao.idEmp),
+        id_plano: Number(conta.id_plano || 1),
+        conta: {
+          id: String(conta.Id),
+          nome: conta.nome || '',
+          email: conta.email || '',
+          cpfcnpj: conta.cpfcnpj || '',
+          chave: conta.chave || '',
+          id_plano: Number(conta.id_plano || 1),
+          ativado: conta.ativado || 'N',
+          data_validade: conta.data_validade || '',
+        },
+        usuario: {
+          id: String(sessao.idUsuario),
+          id_emp: String(conta.Id),
+          nome: usuarioNome,
+          email: usuarioEmail,
+          principal: sessao.idUsuario === 0,
+        },
+      });
     } catch (err: any) {
       res.status(503).json({ valida: null, error: err.message });
     }
+  });
+
+  // --------------------------------------------------------
+  // Sair: só o servidor apaga o cookie, porque ele é httpOnly
+  // --------------------------------------------------------
+  router.post('/logout', (req: Request, res: Response) => {
+    apagarSessao(req, res);
+    res.json({ success: true });
   });
 
   // --------------------------------------------------------
