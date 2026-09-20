@@ -2,8 +2,11 @@ import { Router, Request, Response } from 'express';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import { pool, hojeBrasilia } from './db';
-import { tenantId, lerConfig, planoPorId } from './auth';
+import { pool, hojeBrasilia } from './db.js';
+import { tenantId, lerConfig, planoPorId } from './auth.js';
+
+/** Pasta dos comprovantes anexados aos lançamentos */
+export const PASTA_UPLOAD = path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
 
 /**
  * Tela de Lançamentos: listagem filtrada, gravação com as regras de cartão de
@@ -580,7 +583,7 @@ export function createLancamentosRouter() {
   // --------------------------------------------------------
   // Comprovante: envio e remoção
   // --------------------------------------------------------
-  const pastaUpload = path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
+  const pastaUpload = PASTA_UPLOAD;
 
   router.post(
     '/lancamentos/:id/comprovante',
@@ -603,8 +606,21 @@ export function createLancamentosRouter() {
         const extensao = (path.extname(original) || '.bin').toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 8);
         const nome = `comp_${idEmp}_${id}_${Date.now()}${extensao}`;
 
-        fs.mkdirSync(pastaUpload, { recursive: true });
-        fs.writeFileSync(path.join(pastaUpload, nome), corpo);
+        try {
+          fs.mkdirSync(pastaUpload, { recursive: true });
+          fs.writeFileSync(path.join(pastaUpload, nome), corpo);
+        } catch (erroDisco: any) {
+          // Em hospedagem sem disco gravável (Vercel, por exemplo) não há onde
+          // guardar o arquivo: melhor dizer isso do que devolver um erro solto.
+          if (['EROFS', 'EACCES', 'EPERM'].includes(erroDisco?.code)) {
+            return res.status(501).json({
+              error:
+                'Este servidor não tem disco para guardar comprovantes. ' +
+                'Rode o sistema numa máquina com disco gravável ou configure um armazenamento externo.',
+            });
+          }
+          throw erroDisco;
+        }
 
         const link = `/uploads/${nome}`;
         await pool.query('UPDATE lancamentos SET comprovante_link = ? WHERE Id = ? AND id_emp = ?', [link, id, idEmp]);

@@ -23,6 +23,33 @@ npm run dev
 Sobe em `http://localhost:3000`. Outros comandos: `npm run build` (produção),
 `npm start` (roda o build), `npm run lint` (tipos), `npm test` (regras de negócio).
 
+## Publicar na Vercel
+
+O Express está separado do servidor local, como nos outros apps do grupo:
+
+| Arquivo | Papel |
+|---|---|
+| `server/app.ts` | monta o app com todas as rotas `/api`, sem `listen` e sem Vite |
+| `server.ts` | execução local: acrescenta o Vite (ou o `dist`) e escuta numa porta |
+| `api/index.ts` | exporta o app como função serverless da Vercel |
+| `vercel.json` | roteia `/api/:path*` para `/api`, preservando o caminho |
+
+Sem esses dois últimos a Vercel publica só o front e **toda chamada `/api` vira
+404**.
+
+Na Vercel é preciso cadastrar as variáveis de ambiente (Settings → Environment
+Variables), porque o `.env` não vai para o repositório: `MYSQL_HOST`,
+`MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` e, se for usar
+e-mail, as `SMTP_*`.
+
+Duas coisas que só funcionam onde há disco gravável:
+
+- **Comprovantes** dos lançamentos são gravados em `uploads/`. Na Vercel o disco
+  é somente leitura e o anexo responde com um aviso claro em vez de falhar solto.
+  Para ter anexos lá, é preciso um armazenamento externo (Vercel Blob, S3).
+- O bundle de `npm run build` sai em `build/`, e não em `dist/`: o `dist/` é
+  publicado como estático e o `server.cjs` (com sourcemap) ficaria acessível.
+
 ## Configuração
 
 Copie `.env.example` para `.env` e preencha a conexão e o SMTP. O `.env` não vai

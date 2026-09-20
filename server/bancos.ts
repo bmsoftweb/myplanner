@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { pool, hojeBrasilia } from './db';
-import { tenantId } from './auth';
+import { pool, hojeBrasilia } from './db.js';
+import { tenantId } from './auth.js';
 
 /**
  * Extrato bancário, transferência entre contas e importação de arquivos OFX.

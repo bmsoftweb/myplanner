@@ -6,17 +6,17 @@
  * Roda sem framework:  npx tsx server/regras.test.ts
  */
 import assert from 'node:assert/strict';
-import { vencimentoDaFatura, gerarDatasRecorrentes } from './lancamentos';
-import { lerOfx } from './bancos';
-import { prepararConsulta } from './consultas';
-import { vencimentoDaJanela } from './limites';
+import { vencimentoDaFatura, gerarDatasRecorrentes } from './lancamentos.js';
+import { lerOfx } from './bancos.js';
+import { prepararConsulta } from './consultas.js';
+import { vencimentoDaJanela } from './limites.js';
 import {
   paraDigitos,
   paraCanonico,
   paraExibicao,
   aplicarDigitacao,
   aplicarColagem,
-} from '../src/utils/numeroBancario';
+} from '../src/utils/numeroBancario.js';
 
 // ------------------------------------------------------------
 // Fatura do cartão

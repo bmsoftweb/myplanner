@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import { pool, hojeBrasilia, agoraBrasilia } from './db';
-import { enviarEmail, corpoEmail, smtpConfigurado } from './mail';
+import { pool, hojeBrasilia, agoraBrasilia } from './db.js';
+import { enviarEmail, corpoEmail, smtpConfigurado } from './mail.js';
 
 /**
  * Contas, login e configuração.

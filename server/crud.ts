@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { pool } from './db';
-import { tenantId } from './auth';
+import { pool } from './db.js';
+import { tenantId } from './auth.js';
 import {
   RESOURCES,
   FieldDef,
@@ -8,7 +8,7 @@ import {
   getResource,
   writableFields,
   columnNames,
-} from './schema';
+} from './schema.js';
 
 /** Separador usado para chaves primárias compostas na URL: /api/crud/x/12~34 */
 const PK_SEPARATOR = '~';

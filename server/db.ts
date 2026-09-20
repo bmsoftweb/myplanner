@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import mysql from 'mysql2/promise';
 
 // A senha vem só do .env: nunca fica no código, que vai para o repositório.

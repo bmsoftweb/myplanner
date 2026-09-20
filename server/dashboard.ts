@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { pool } from './db';
-import { tenantId } from './auth';
+import { pool } from './db.js';
+import { tenantId } from './auth.js';
 
 /**
  * Painel (Home) — reproduz os quatro blocos do sistema original:
