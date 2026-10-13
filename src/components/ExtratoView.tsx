@@ -120,11 +120,16 @@ export const ExtratoView: React.FC<ExtratoViewProps> = ({ refreshToken, onToast 
       {
         name: 'saldo', label: 'Saldo', width: 'sm', align: 'right',
         valor: (l) => Number(l.saldo || 0),
-        render: (l) => (
-          <span className={`font-semibold ${l.saldo >= 0 ? 'text-stone-800 dark:text-stone-100' : 'text-rose-600'}`}>
-            {formatValor(l.saldo)}
-          </span>
-        ),
+        render: (l) =>
+          l.saldo == null ? (
+            <span className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-400" title="Pendente: não entra no saldo">
+              Pendente
+            </span>
+          ) : (
+            <span className={`font-semibold ${l.saldo >= 0 ? 'text-stone-800 dark:text-stone-100' : 'text-rose-600'}`}>
+              {formatValor(l.saldo)}
+            </span>
+          ),
       },
     ],
     [],
@@ -402,6 +407,13 @@ export const ExtratoView: React.FC<ExtratoViewProps> = ({ refreshToken, onToast 
   // ----------------------------------------------------------
   // Extrato
   // ----------------------------------------------------------
+  // Pendentes do período: aparecem nas linhas, mas ficam fora do saldo
+  const pendentes = (extrato?.data || []).filter((l: any) => l.saldo == null);
+  const totalPendentes = pendentes.reduce(
+    (soma: number, l: any) => soma + Number(l.valor || 0) * (l.es === '+' ? 1 : -1),
+    0,
+  );
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-white dark:bg-stone-900">
       <div className="border-b border-stone-200 dark:border-stone-800 px-4 py-2.5 flex flex-wrap items-center gap-2">
@@ -495,7 +507,7 @@ export const ExtratoView: React.FC<ExtratoViewProps> = ({ refreshToken, onToast 
                   formatDateBR(l.data), l.documento, l.categoria, l.historico,
                   l.centro_custo, l.limite, l.es,
                   Number(l.valor).toFixed(2).replace('.', ','),
-                  Number(l.saldo).toFixed(2).replace('.', ','),
+                  l.saldo == null ? 'Pendente' : Number(l.saldo).toFixed(2).replace('.', ','),
                 ]
                   .map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`)
                   .join(';'),
@@ -593,7 +605,9 @@ export const ExtratoView: React.FC<ExtratoViewProps> = ({ refreshToken, onToast 
                         key={c.name}
                         data-coluna={c.name}
                         style={g.estiloColuna(c, true).style}
-                        className={`px-2 py-[7.5px] text-stone-700 dark:text-stone-300 align-middle max-w-xs truncate ${g.bordasCelula} ${alinhamento(c)}`}
+                        className={`px-2 py-[7.5px] align-middle max-w-xs truncate ${g.bordasCelula} ${alinhamento(c)} ${
+                          l.saldo == null ? 'italic text-stone-400 dark:text-stone-500' : 'text-stone-700 dark:text-stone-300'
+                        }`}
                       >
                         {c.render(l)}
                       </td>
@@ -619,6 +633,14 @@ export const ExtratoView: React.FC<ExtratoViewProps> = ({ refreshToken, onToast 
               {formatValor(extrato.saldoFinal)}
             </strong>
           </span>
+          {pendentes.length > 0 && (
+            <span className="text-stone-500 dark:text-stone-400" title="Lançamentos pendentes do período, fora do saldo">
+              Pendentes ({pendentes.length}):{' '}
+              <strong className={`font-mono ${totalPendentes >= 0 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600'}`}>
+                {formatValor(totalPendentes)}
+              </strong>
+            </span>
+          )}
         </div>
       )}
     </div>

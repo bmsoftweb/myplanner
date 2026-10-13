@@ -280,6 +280,15 @@ async function montarGravacao(d: DadosLancamento, idEmp: number, limite: any) {
   };
 }
 
+/**
+ * Status na alteração: o recalculado pela gravação, exceto quando o lançamento já
+ * tinha valor realizado e estava conciliado — editar não desfaz a conciliação.
+ */
+export function statusNaAlteracao(anterior: { status: string; valor_realizado: any } | undefined, novo: string) {
+  if (novo === 'P' && anterior?.status === 'O' && Number(anterior.valor_realizado) > 0) return 'O';
+  return novo;
+}
+
 /** Quantos lançamentos a conta ainda pode incluir neste mês, conforme o plano */
 async function situacaoDoPlano(idEmp: number) {
   const [conta] = await pool.query<any[]>('SELECT id_plano FROM empresas WHERE Id = ?', [idEmp]);
@@ -481,6 +490,11 @@ export function createLancamentosRouter() {
 
       const dados = await montarGravacao(d, idEmp, limite);
       delete (dados as any).id_emp;
+      const [atual] = await pool.query<any[]>(
+        'SELECT status, valor_realizado FROM lancamentos WHERE Id = ? AND id_emp = ?',
+        [Number(req.params.id), idEmp],
+      );
+      dados.status = statusNaAlteracao(atual[0], dados.status);
       const cols = Object.keys(dados);
 
       const [r] = await pool.query<any>(
@@ -489,6 +503,29 @@ export function createLancamentosRouter() {
       );
       if (!r.affectedRows) return res.status(404).json({ error: 'Lançamento não encontrado nesta conta.' });
 
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.sqlMessage || err.message });
+    }
+  });
+
+  // --------------------------------------------------------
+  // Conciliar / voltar para pendente
+  // --------------------------------------------------------
+  router.patch('/lancamentos/:id/status', async (req: Request, res: Response) => {
+    try {
+      const idEmp = tenantId(req);
+      const status = String(req.body?.status || '').toUpperCase();
+      if (status !== 'P' && status !== 'O') return res.status(400).json({ error: 'Status inválido.' });
+
+      // Só o que tem valor realizado passa por conciliação; previsão fica sempre OK
+      const [r] = await pool.query<any>(
+        'UPDATE lancamentos SET status = ? WHERE Id = ? AND id_emp = ? AND valor_realizado > 0',
+        [status, Number(req.params.id), idEmp],
+      );
+      if (!r.affectedRows) {
+        return res.status(400).json({ error: 'Só lançamentos com valor realizado podem ser conciliados.' });
+      }
       res.json({ success: true });
     } catch (err: any) {
       res.status(400).json({ error: err.sqlMessage || err.message });

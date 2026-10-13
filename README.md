@@ -144,6 +144,9 @@ e-mail com a senha** (usuários).
   passa a ser o vencimento da fatura seguinte à compra; depois do dia de
   fechamento, cai uma fatura adiante. `99` em fechamento ou vencimento significa
   "último dia do mês". O lançamento nasce com `status = 'O'`.
+- **Conciliação**: lançamento com valor realizado nasce `P` (pendente) e é
+  conciliado (`O`) pelo botão Conciliar da tela (`PATCH /api/lancamentos/:id/status`).
+  Editar um lançamento conciliado não o devolve para pendente.
 - **`data_sort`** é sempre a data realizada quando existe; senão, a prevista.
 - **Recorrentes**: diário e semanal percorrem dia a dia respeitando os dias da
   semana marcados; os demais intervalos avançam de período em período, com o dia

@@ -35,13 +35,14 @@ export function createBancosRouter() {
            LEFT JOIN categorias_sub b ON b.Id = a.id_categoria
            LEFT JOIN categorias     c ON c.Id = b.id_cat
           WHERE a.id_emp = ? AND a.id_banco = ?
-            AND a.data_realizado IS NOT NULL AND a.data_realizado < ?`,
+            AND a.data_realizado IS NOT NULL AND a.data_realizado < ? AND a.status = 'O'`,
         [idEmp, idBanco, d1],
       );
 
-      // Só o movimento do período pedido
+      // Só o movimento do período pedido; o pendente aparece, mas não mexe no saldo
       const [movimento] = await pool.query<any[]>(
         `SELECT a.Id AS id_lanc,
+                a.status,
                 a.data_realizado AS data,
                 COALESCE(a.documento, '') AS documento,
                 COALESCE(b.descricao, '') AS categoria,
@@ -86,6 +87,10 @@ export function createBancosRouter() {
       }
 
       for (const m of movimento) {
+        if (m.status !== 'O') {
+          linhas.push({ ...m, valor: Number(m.valor || 0), saldo: null });
+          continue;
+        }
         saldo += Number(m.valor || 0) * (m.es === '+' ? 1 : -1);
         linhas.push({ ...m, valor: Number(m.valor || 0), saldo });
       }

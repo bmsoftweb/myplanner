@@ -131,7 +131,7 @@ export function createDashboardRouter() {
                     LEFT JOIN categorias_sub b ON b.Id = a.id_categoria
                     LEFT JOIN categorias     c ON c.Id = b.id_cat
                    WHERE a.id_banco = bc.Id AND a.id_emp = bc.id_emp
-                     AND a.data_realizado IS NOT NULL
+                     AND a.data_realizado IS NOT NULL AND a.status = 'O'
                 ), 0) AS saldo
            FROM bancos bc
           WHERE bc.id_emp = ?

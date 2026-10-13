@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus, Pencil, Trash2, Repeat, Paperclip, Download, FileDown, RefreshCw, Search,
   ChevronLeft, ChevronRight, Loader2, AlertCircle, Inbox, Save, X, CalendarDays,
-  ArrowUp, ArrowDown,
+  ArrowUp, ArrowDown, CheckCircle2,
 } from 'lucide-react';
 import { CombosLancamentos, FiltrosLancamentos } from '../services/api';
 import {
-  listarLancamentos, lerLancamento, gravarLancamento, excluirLancamento,
+  listarLancamentos, lerLancamento, gravarLancamento, excluirLancamento, mudarStatusLancamento,
   gravarRecorrentes, preverDatasRecorrentes, enviarComprovante, removerComprovante,
   baixarLancamentosCsv, lerCombosLancamentos,
 } from '../services/api';
@@ -350,6 +350,23 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
       carregar();
     } catch (e: any) {
       onToast(e.message || 'Falha ao anexar o comprovante.');
+    }
+  };
+
+  // ----------------------------------------------------------
+  // Conciliação: alterna entre Pendente e OK
+  // ----------------------------------------------------------
+  const podeConciliar = (l: Lancamento | null) => !!l && Number(l.valor_realizado) > 0;
+
+  const alternarStatus = async (l: Lancamento) => {
+    const status = l.status === 'P' ? 'O' : 'P';
+    try {
+      await mudarStatusLancamento(l.Id, status);
+      setLinhas((ls) => ls.map((x) => (x.Id === l.Id ? { ...x, status } : x)));
+      setSelecionado((s) => (s?.Id === l.Id ? { ...s, status } : s));
+      onToast(status === 'O' ? 'Lançamento conciliado.' : 'Lançamento voltou para pendente.');
+    } catch (e: any) {
+      onToast(e.message || 'Falha ao mudar o status do lançamento.');
     }
   };
 
@@ -1126,6 +1143,18 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
 
         <span className="w-px h-6 bg-stone-200 dark:bg-stone-800" />
 
+        {botao(
+          selecionado?.status === 'O' && podeConciliar(selecionado) ? 'Voltar p/ pendente' : 'Conciliar',
+          CheckCircle2,
+          () => selecionado && alternarStatus(selecionado),
+          {
+            desabilitado: !podeConciliar(selecionado),
+            titulo: selecionado && !podeConciliar(selecionado) ? 'Só lançamentos com valor realizado são conciliados' : undefined,
+          },
+        )}
+
+        <span className="w-px h-6 bg-stone-200 dark:bg-stone-800" />
+
         {botao('Anexar', Paperclip, () => inputArquivo.current?.click(), { desabilitado: !selecionado })}
         {botao('Baixar', Download, baixar, { desabilitado: !selecionado?.comprovante_link })}
         {botao('Remover anexo', X, () => setRemovendoAnexo(selecionado), {
@@ -1260,6 +1289,23 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
                     {g.comSobra && <TdSobra grade={g} />}
 
                     <TdAcoes grade={g}>
+                      {podeConciliar(l) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            alternarStatus(l);
+                          }}
+                          title={l.status === 'P' ? 'Conciliar lançamento' : 'Voltar para pendente'}
+                          className={`p-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer ${
+                            l.status === 'P'
+                              ? 'text-stone-400 hover:text-emerald-600 dark:hover:text-emerald-400'
+                              : 'text-emerald-600 dark:text-emerald-400 hover:text-amber-600'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {

@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { vencimentoDaFatura, gerarDatasRecorrentes } from './lancamentos.js';
+import { vencimentoDaFatura, gerarDatasRecorrentes, statusNaAlteracao } from './lancamentos.js';
 import { lerOfx } from './bancos.js';
 import { prepararConsulta } from './consultas.js';
 import { vencimentoDaJanela } from './limites.js';
@@ -221,5 +221,16 @@ assert.equal(aplicarColagem('abc', 2, false), null);
     .digest('base64url');
   assert.equal(lerToken(`${corpoVencido}.${assinaturaVencido}`).motivo, 'expirada');
 }
+
+// ------------------------------------------------------------
+// Status na alteração do lançamento
+// ------------------------------------------------------------
+// Conciliado com valor realizado: editar não volta para pendente
+assert.equal(statusNaAlteracao({ status: 'O', valor_realizado: '150.00' }, 'P'), 'O');
+// Era só previsão (OK sem valor) e ganhou valor realizado: fica pendente
+assert.equal(statusNaAlteracao({ status: 'O', valor_realizado: null }, 'P'), 'P');
+// Pendente continua pendente; tirar o valor vira OK
+assert.equal(statusNaAlteracao({ status: 'P', valor_realizado: '10' }, 'P'), 'P');
+assert.equal(statusNaAlteracao({ status: 'O', valor_realizado: '10' }, 'O'), 'O');
 
 console.log('Todas as regras conferidas.');

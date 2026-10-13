@@ -353,6 +353,16 @@ export async function gravarLancamento(id: string | number | null, dados: Record
   return parseOrThrow(res);
 }
 
+export async function mudarStatusLancamento(id: string | number, status: 'P' | 'O'): Promise<{ success: boolean }> {
+  return parseOrThrow(
+    await fetch(`/api/lancamentos/${id}/status`, {
+      method: 'PATCH',
+      headers: headers({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ status }),
+    }),
+  );
+}
+
 export async function excluirLancamento(id: string | number): Promise<{ success: boolean }> {
   return parseOrThrow(await fetch(`/api/lancamentos/${id}`, { method: 'DELETE', headers: headers() }));
 }
