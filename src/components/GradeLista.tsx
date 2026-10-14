@@ -68,11 +68,13 @@ export function useGradeLista<T extends ColunaGrade>({
   /** As colunas na ordem em que o usuário as deixou */
   const colunas = useMemo(() => {
     if (!ordem.length) return colunasBase;
-    const posicao = (nome: string) => {
-      const i = ordem.indexOf(nome);
-      return i < 0 ? ordem.length : i;
-    };
-    return [...colunasBase].sort((a, b) => posicao(a.name) - posicao(b.name));
+    // Coluna que não estava na ordem salva (criada depois) entra logo após a vizinha da ordem base
+    const posicao = new Map<string, number>();
+    colunasBase.forEach((c, idx) => {
+      const i = ordem.indexOf(c.name);
+      posicao.set(c.name, i >= 0 ? i : (idx > 0 ? posicao.get(colunasBase[idx - 1].name)! : -1) + 0.001);
+    });
+    return [...colunasBase].sort((a, b) => posicao.get(a.name)! - posicao.get(b.name)!);
   }, [colunasBase, ordem]);
 
   // A borda existe sempre (só fica transparente), senão a altura da linha muda junto com a grade

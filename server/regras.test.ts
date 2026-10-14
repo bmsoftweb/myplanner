@@ -19,6 +19,7 @@ import {
   aplicarDigitacao,
   aplicarColagem,
 } from '../src/utils/numeroBancario.js';
+import { diaDaSemana } from '../src/utils/formatters.js';
 
 // ------------------------------------------------------------
 // Fatura do cartão
@@ -232,5 +233,10 @@ assert.equal(statusNaAlteracao({ status: 'O', valor_realizado: null }, 'P'), 'P'
 // Pendente continua pendente; tirar o valor vira OK
 assert.equal(statusNaAlteracao({ status: 'P', valor_realizado: '10' }, 'P'), 'P');
 assert.equal(statusNaAlteracao({ status: 'O', valor_realizado: '10' }, 'O'), 'O');
+
+// Dia da semana da data realizada
+assert.equal(diaDaSemana('2026-10-14'), 'Qua');
+assert.equal(diaDaSemana('2026-10-18T00:00:00.000Z'), 'Dom');
+assert.equal(diaDaSemana(''), '');
 
 console.log('Todas as regras conferidas.');

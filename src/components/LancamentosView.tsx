@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus, Pencil, Trash2, Repeat, Paperclip, Download, FileDown, RefreshCw, Search,
   ChevronLeft, ChevronRight, Loader2, AlertCircle, Inbox, Save, X, CalendarDays,
-  ArrowUp, ArrowDown, CheckCircle2,
+  ArrowUp, ArrowDown, CheckCircle2, Circle,
 } from 'lucide-react';
 import { CombosLancamentos, FiltrosLancamentos } from '../services/api';
 import {
@@ -13,7 +13,7 @@ import {
 import { ConfigUsuario, Lancamento } from '../types';
 import {
   formatValor, formatDateBR, MESES, hoje, primeiroDiaDoMes, ultimoDiaDoMes,
-  inicioDaSemana, fimDaSemana,
+  inicioDaSemana, fimDaSemana, diaDaSemana,
 } from '../utils/formatters';
 import { INPUT_CLASS, LABEL_CLASS, FIELD_CLASS, HINT_CLASS } from '../utils/formStyles';
 import {
@@ -369,6 +369,9 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
       onToast(e.message || 'Falha ao mudar o status do lançamento.');
     }
   };
+  // As colunas são montadas uma vez só: o ícone da coluna St chama a versão atual por aqui
+  const alternarStatusRef = useRef(alternarStatus);
+  alternarStatusRef.current = alternarStatus;
 
   const baixar = () => {
     if (!selecionado?.comprovante_link) return onToast('Este lançamento não tem comprovante anexado.');
@@ -457,12 +460,27 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
       {
         name: 'status', label: 'St', width: 'xs', align: 'center',
         valor: (l) => l.status || '',
-        render: (l) => (
-          <span
-            title={l.status === 'P' ? 'Pendente' : 'Conciliado'}
-            className={`inline-block w-2 h-2 rounded-full ${l.status === 'P' ? 'bg-amber-500' : 'bg-emerald-500'}`}
-          />
-        ),
+        // Com valor realizado, o ícone concilia ou volta para pendente; previsão só mostra o ponto
+        render: (l) =>
+          Number(l.valor_realizado) > 0 ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                alternarStatusRef.current(l);
+              }}
+              title={l.status === 'P' ? 'Pendente: clique para conciliar' : 'Conciliado: clique para voltar para pendente'}
+              className={`p-0.5 rounded align-middle transition-colors cursor-pointer ${
+                l.status === 'P'
+                  ? 'text-amber-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                  : 'text-emerald-600 dark:text-emerald-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+              }`}
+            >
+              {l.status === 'P' ? <Circle className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+            </button>
+          ) : (
+            <span title="Previsão" className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+          ),
       },
       {
         name: 'recorrente', label: 'R', width: 'xs', align: 'center',
@@ -509,6 +527,27 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
         name: 'data_realizado', label: 'Data Real.', width: 'sm', align: 'center',
         valor: (l) => l.data_realizado || '',
         render: (l) => (l.data_realizado ? formatDateBR(l.data_realizado) : ''),
+      },
+      {
+        name: 'dia_semana', label: 'Dia', width: 'xs', align: 'center',
+        valor: (l) => (l.data_realizado ? diaDaSemana(l.data_realizado) : ''),
+        render: (l) => {
+          const dia = l.data_realizado ? diaDaSemana(l.data_realizado) : '';
+          if (!dia) return '';
+          // Fim de semana em cinza bem claro; dia útil com fundo branco
+          const fimDeSemana = dia === 'Sáb' || dia === 'Dom';
+          return (
+            <span
+              className={`inline-block px-1.5 py-px rounded border text-[10px] font-semibold leading-4 ${
+                fimDeSemana
+                  ? 'bg-stone-200 border-stone-300 text-stone-600 dark:bg-stone-700 dark:border-stone-600 dark:text-stone-300'
+                  : 'bg-white border-stone-200 text-stone-600 dark:bg-stone-900 dark:border-stone-700 dark:text-stone-300'
+              }`}
+            >
+              {dia}
+            </span>
+          );
+        },
       },
       {
         name: 'valor_realizado', label: 'Valor Real.', width: 'sm', align: 'right',
@@ -1052,6 +1091,10 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
           setD1(inicioDaSemana());
           setD2(fimDaSemana());
         })}
+        {botao('Mês', CalendarDays, () => {
+          const agora = new Date();
+          aplicarMesAno(agora.getMonth(), agora.getFullYear());
+        })}
         {botao('Todos', CalendarDays, () => {
           setD1('1980-01-01');
           setD2('2099-12-31');
@@ -1289,23 +1332,6 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
                     {g.comSobra && <TdSobra grade={g} />}
 
                     <TdAcoes grade={g}>
-                      {podeConciliar(l) && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            alternarStatus(l);
-                          }}
-                          title={l.status === 'P' ? 'Conciliar lançamento' : 'Voltar para pendente'}
-                          className={`p-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer ${
-                            l.status === 'P'
-                              ? 'text-stone-400 hover:text-emerald-600 dark:hover:text-emerald-400'
-                              : 'text-emerald-600 dark:text-emerald-400 hover:text-amber-600'
-                          }`}
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
                       <button
                         type="button"
                         onClick={(e) => {

@@ -122,6 +122,13 @@ export function inicioDaSemana(referencia = new Date()): string {
   return local(d);
 }
 
+/** Dia da semana em 3 letras ('2026-10-14' → 'Qua'), sem passar por UTC */
+export function diaDaSemana(data: string): string {
+  const [a, m, d] = String(data).slice(0, 10).split('-').map(Number);
+  if (!a || !m || !d) return '';
+  return ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][new Date(a, m - 1, d).getDay()];
+}
+
 export function fimDaSemana(referencia = new Date()): string {
   const d = new Date(referencia);
   d.setDate(d.getDate() - d.getDay() + 6);
