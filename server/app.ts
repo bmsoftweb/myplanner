@@ -1,10 +1,10 @@
 import express from 'express';
-import fs from 'fs';
 import { checkDbHealth } from './db.js';
 import { createAuthRouter } from './auth.js';
 import { createCrudRouter } from './crud.js';
 import { createDashboardRouter } from './dashboard.js';
-import { createLancamentosRouter, PASTA_UPLOAD } from './lancamentos.js';
+import { createLancamentosRouter } from './lancamentos.js';
+import { createAnexosRouter } from './anexos.js';
 import { createPlanejamentoRouter } from './planejamento.js';
 import { createBancosRouter } from './bancos.js';
 import { createLimitesRouter } from './limites.js';
@@ -23,15 +23,8 @@ export function createApp() {
   // Atrás do proxy da Vercel: req.protocol/host vêm dos cabeçalhos X-Forwarded-*
   app.set('trust proxy', true);
 
-  // O envio de comprovante usa o corpo cru e é tratado na própria rota;
-  // todo o resto do sistema troca JSON. O limite acomoda um arquivo OFX inteiro.
+  // Todo o sistema troca JSON. O limite acomoda um arquivo OFX inteiro.
   app.use(express.json({ limit: '15mb' }));
-
-  // Comprovantes já gravados. A pasta é criada por quem roda o servidor local:
-  // na Vercel o disco é somente leitura e ela simplesmente não existe.
-  if (fs.existsSync(PASTA_UPLOAD)) {
-    app.use('/uploads', express.static(PASTA_UPLOAD));
-  }
 
   // Saúde da conexão com o MySQL
   app.get('/api/db/status', async (_req, res) => {
@@ -69,6 +62,7 @@ export function createApp() {
   // Telas próprias
   app.use('/api', createDashboardRouter());
   app.use('/api', createLancamentosRouter());
+  app.use('/api', createAnexosRouter());
   app.use('/api', createPlanejamentoRouter());
   app.use('/api', createBancosRouter());
   app.use('/api', createLimitesRouter());

@@ -1,17 +1,12 @@
-import fs from 'fs';
 import path from 'path';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { createApp } from './server/app.js';
-import { PASTA_UPLOAD } from './server/lancamentos.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 
 /** Entrada para execução local. Na Vercel quem serve as rotas é api/index.ts. */
 async function startServer() {
-  // Só aqui: na Vercel o disco é somente leitura e não há o que criar
-  fs.mkdirSync(PASTA_UPLOAD, { recursive: true });
-
   const app = createApp();
 
   if (process.env.NODE_ENV !== 'production') {

@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Plus, Pencil, Trash2, Repeat, Paperclip, Download, FileDown, RefreshCw, Search,
+  Plus, Pencil, Trash2, Repeat, Paperclip, FileDown, RefreshCw, Search,
   ChevronLeft, ChevronRight, Loader2, AlertCircle, Inbox, Save, X, CalendarDays,
-  ArrowUp, ArrowDown, CheckCircle2, Circle,
+  ArrowUp, ArrowDown, CheckCircle2, Circle, ChartColumn,
 } from 'lucide-react';
 import { CombosLancamentos, FiltrosLancamentos } from '../services/api';
 import {
   listarLancamentos, lerLancamento, gravarLancamento, excluirLancamento, mudarStatusLancamento,
-  gravarRecorrentes, preverDatasRecorrentes, enviarComprovante, removerComprovante,
+  gravarRecorrentes, preverDatasRecorrentes,
   baixarLancamentosCsv, lerCombosLancamentos,
 } from '../services/api';
 import { ConfigUsuario, Lancamento } from '../types';
@@ -31,6 +31,7 @@ import { DateField } from './DateField';
 import { NumberField } from './NumberField';
 import { Toggle } from './Toggle';
 import { ConfirmDialog } from './ConfirmDialog';
+import { AnexosDialog } from './AnexosDialog';
 
 type Aba = 'lista' | 'form' | 'recorrente';
 
@@ -129,7 +130,7 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
   const [erro, setErro] = useState<string | null>(null);
   const [selecionado, setSelecionado] = useState<Lancamento | null>(null);
   const [excluindo, setExcluindo] = useState<Lancamento | null>(null);
-  const [removendoAnexo, setRemovendoAnexo] = useState<Lancamento | null>(null);
+  const [anexosDe, setAnexosDe] = useState<Lancamento | null>(null);
 
   const filtros: FiltrosLancamentos = useMemo(
     () => ({
@@ -338,22 +339,6 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
   };
 
   // ----------------------------------------------------------
-  // Comprovante
-  // ----------------------------------------------------------
-  const inputArquivo = useRef<HTMLInputElement>(null);
-
-  const anexar = async (arquivo: File) => {
-    if (!selecionado) return;
-    try {
-      await enviarComprovante(selecionado.Id, arquivo);
-      onToast('Comprovante anexado.');
-      carregar();
-    } catch (e: any) {
-      onToast(e.message || 'Falha ao anexar o comprovante.');
-    }
-  };
-
-  // ----------------------------------------------------------
   // Conciliação: alterna entre Pendente e OK
   // ----------------------------------------------------------
   const podeConciliar = (l: Lancamento | null) => !!l && Number(l.valor_realizado) > 0;
@@ -372,11 +357,6 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
   // As colunas são montadas uma vez só: o ícone da coluna St chama a versão atual por aqui
   const alternarStatusRef = useRef(alternarStatus);
   alternarStatusRef.current = alternarStatus;
-
-  const baixar = () => {
-    if (!selecionado?.comprovante_link) return onToast('Este lançamento não tem comprovante anexado.');
-    window.open(selecionado.comprovante_link, '_blank', 'noopener,noreferrer');
-  };
 
   // ----------------------------------------------------------
   // Peças da interface
@@ -489,8 +469,8 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
       },
       {
         name: 'anexo', label: 'A', width: 'xs', align: 'center',
-        valor: (l) => (l.comprovante_link ? 'S' : ''),
-        render: (l) => (l.comprovante_link ? <Paperclip className="w-3 h-3 inline text-stone-400" /> : null),
+        valor: (l) => Number(l.qtd_anexos || 0),
+        render: (l) => (Number(l.qtd_anexos) > 0 ? <Paperclip className="w-3 h-3 inline text-stone-400" /> : null),
       },
       {
         name: 'categoria', label: 'Categoria', width: 'lg', align: 'left',
@@ -559,7 +539,12 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
       {
         name: 'analise', label: 'An', width: 'xs', align: 'center',
         valor: (l) => l.analise || '',
-        render: (l) => (l.analise === 'S' ? <span className="text-stone-400">✓</span> : null),
+        render: (l) =>
+          l.analise === 'S' ? (
+            <span title="Entra na análise">
+              <ChartColumn className="w-3.5 h-3.5 inline text-blue-500 dark:text-blue-400" />
+            </span>
+          ) : null,
       },
       {
         name: 'historico', label: 'Histórico', width: 'lg', align: 'left',
@@ -599,22 +584,6 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
         configKey: 'usar_metas',
         valor: (l) => l.descricao_meta || '',
         render: (l) => l.descricao_meta,
-      },
-      {
-        name: 'comprovante', label: 'Comprovante', width: 'sm', align: 'center',
-        valor: (l) => l.comprovante_link || '',
-        render: (l) =>
-          l.comprovante_link ? (
-            <a
-              href={l.comprovante_link}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="text-blue-600 hover:underline"
-            >
-              ver
-            </a>
-          ) : null,
       },
     ],
     [],
@@ -1198,21 +1167,7 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
 
         <span className="w-px h-6 bg-stone-200 dark:bg-stone-800" />
 
-        {botao('Anexar', Paperclip, () => inputArquivo.current?.click(), { desabilitado: !selecionado })}
-        {botao('Baixar', Download, baixar, { desabilitado: !selecionado?.comprovante_link })}
-        {botao('Remover anexo', X, () => setRemovendoAnexo(selecionado), {
-          desabilitado: !selecionado?.comprovante_link,
-        })}
-        <input
-          ref={inputArquivo}
-          type="file"
-          className="hidden"
-          onChange={(e) => {
-            const arquivo = e.target.files?.[0];
-            e.target.value = '';
-            if (arquivo) anexar(arquivo);
-          }}
-        />
+        {botao('Anexos', Paperclip, () => setAnexosDe(selecionado), { desabilitado: !selecionado })}
 
         <span className="w-px h-6 bg-stone-200 dark:bg-stone-800" />
 
@@ -1336,6 +1291,19 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          setAnexosDe(l);
+                        }}
+                        title={Number(l.qtd_anexos) > 0 ? `Anexos (${l.qtd_anexos})` : 'Anexar comprovante ou documento'}
+                        className={`p-1 rounded hover:text-blue-600 hover:bg-blue-50 dark:hover:text-blue-400 dark:hover:bg-blue-950/40 transition-colors cursor-pointer ${
+                          Number(l.qtd_anexos) > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-stone-400'
+                        }`}
+                      >
+                        <Paperclip className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
                           abrirEdicao(l);
                         }}
                         title="Editar lançamento"
@@ -1404,17 +1372,14 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
         />
       )}
 
-      {removendoAnexo && (
-        <ConfirmDialog
-          titulo="Remover o comprovante?"
-          mensagem="O arquivo anexado a este lançamento será apagado do servidor."
-          rotuloConfirmar="Remover"
-          onCancelar={() => setRemovendoAnexo(null)}
-          onConfirmar={async () => {
-            await removerComprovante(removendoAnexo.Id);
-            setRemovendoAnexo(null);
-            onToast('Comprovante removido.');
-            carregar();
+      {anexosDe && (
+        <AnexosDialog
+          lancamento={anexosDe}
+          onFechar={() => setAnexosDe(null)}
+          onToast={onToast}
+          onMudou={(qtd) => {
+            setLinhas((ls) => ls.map((x) => (x.Id === anexosDe.Id ? { ...x, qtd_anexos: qtd } : x)));
+            setSelecionado((sel) => (sel?.Id === anexosDe.Id ? { ...sel, qtd_anexos: qtd } : sel));
           }}
         />
       )}

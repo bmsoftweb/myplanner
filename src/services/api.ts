@@ -385,20 +385,50 @@ export async function preverDatasRecorrentes(dados: Record<string, any>): Promis
   return parseOrThrow(res);
 }
 
-export async function enviarComprovante(id: string | number, arquivo: File): Promise<{ success: boolean; link: string }> {
-  const res = await fetch(`/api/lancamentos/${id}/comprovante`, {
-    method: 'POST',
-    headers: headers({
-      'Content-Type': arquivo.type || 'application/octet-stream',
-      'x-nome-arquivo': arquivo.name,
-    }),
-    body: arquivo,
-  });
-  return parseOrThrow(res);
+// ------------------------------------------------------------
+// Anexos dos lançamentos (Vercel Blob privado)
+// ------------------------------------------------------------
+export interface Anexo {
+  id: number;
+  nome: string;
+  tipo: string;
+  tamanho: number;
+  datahora_inclusao: string;
 }
 
-export async function removerComprovante(id: string | number): Promise<{ success: boolean }> {
-  return parseOrThrow(await fetch(`/api/lancamentos/${id}/comprovante`, { method: 'DELETE', headers: headers() }));
+export const MAX_ANEXO = 20 * 1024 * 1024;
+
+export async function listarAnexos(idLanc: string | number): Promise<{ data: Anexo[] }> {
+  return parseOrThrow(await fetch(`/api/lancamentos/${idLanc}/anexos`, { headers: headers() }));
+}
+
+/** Envia direto do navegador para o Blob (liberado pelo servidor) e grava o registro */
+export async function enviarAnexo(idLanc: string | number, arquivo: File): Promise<void> {
+  const { upload } = await import('@vercel/blob/client');
+  // Sem acento e sem espaço: o nome original fica no registro
+  const nome = arquivo.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '_').slice(-100) || 'arquivo';
+  const blob = await upload(`lancamentos/${idLanc}/${nome}`, arquivo, {
+    access: 'private',
+    handleUploadUrl: `/api/lancamentos/${idLanc}/anexos/upload`,
+    multipart: arquivo.size > 5 * 1024 * 1024,
+  });
+  await parseOrThrow(
+    await fetch(`/api/lancamentos/${idLanc}/anexos`, {
+      method: 'POST',
+      headers: headers({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        url: blob.url,
+        pathname: blob.pathname,
+        nome: arquivo.name,
+        tipo: blob.contentType || arquivo.type,
+        tamanho: arquivo.size,
+      }),
+    }),
+  );
+}
+
+export async function removerAnexo(idAnexo: number): Promise<{ success: boolean }> {
+  return parseOrThrow(await fetch(`/api/anexos/${idAnexo}`, { method: 'DELETE', headers: headers() }));
 }
 
 /** Baixa o CSV passando os cabeçalhos da sessão e salva pelo navegador */

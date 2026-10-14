@@ -1,19 +1,14 @@
 import { Router, Request, Response } from 'express';
-import express from 'express';
-import fs from 'fs';
-import path from 'path';
 import { pool, hojeBrasilia } from './db.js';
 import { tenantId, lerConfig, planoPorId } from './auth.js';
+import { apagarDoBlob } from './anexos.js';
 
 /** Teto de linhas devolvidas pela listagem, para a resposta não crescer sem limite */
 const MAX_LINHAS_LISTA = 5000;
 
-/** Pasta dos comprovantes anexados aos lançamentos */
-export const PASTA_UPLOAD = path.resolve(process.cwd(), process.env.UPLOAD_DIR || 'uploads');
-
 /**
  * Tela de Lançamentos: listagem filtrada, gravação com as regras de cartão de
- * crédito, geração de lançamentos recorrentes, comprovantes e exportação.
+ * crédito, geração de lançamentos recorrentes e exportação. Os anexos ficam em anexos.ts.
  *
  * Observação sobre o modelo: lancamentos.id_categoria aponta para a
  * SUB-categoria (categorias_sub). A categoria "pai" — e com ela o sinal de
@@ -47,7 +42,7 @@ const SELECT_LANCAMENTO = `
     g.descricao  AS descricao_limite,
     a.id_meta,
     h.descricao  AS descricao_meta,
-    COALESCE(a.comprovante_link, '') AS comprovante_link,
+    (SELECT COUNT(*) FROM lancamentos_anexos x WHERE x.id_lancamento = a.Id) AS qtd_anexos,
     IF(a.recorrente = 'S', 'S', '') AS recorrente
   FROM lancamentos a
   LEFT JOIN categorias_sub b ON b.Id   = a.id_categoria
@@ -538,11 +533,19 @@ export function createLancamentosRouter() {
   router.delete('/lancamentos/:id', async (req: Request, res: Response) => {
     try {
       const idEmp = tenantId(req);
-      const [r] = await pool.query<any>('DELETE FROM lancamentos WHERE Id = ? AND id_emp = ?', [
-        Number(req.params.id),
-        idEmp,
-      ]);
+      const id = Number(req.params.id);
+      const [r] = await pool.query<any>('DELETE FROM lancamentos WHERE Id = ? AND id_emp = ?', [id, idEmp]);
       if (!r.affectedRows) return res.status(404).json({ error: 'Lançamento não encontrado nesta conta.' });
+
+      // Os anexos vão junto: registros e arquivos no Blob
+      const [anexos] = await pool.query<any[]>(
+        'SELECT url FROM lancamentos_anexos WHERE id_lancamento = ? AND id_emp = ?',
+        [id, idEmp],
+      );
+      if (anexos.length) {
+        await pool.query('DELETE FROM lancamentos_anexos WHERE id_lancamento = ? AND id_emp = ?', [id, idEmp]);
+        await apagarDoBlob(anexos.map((a) => a.url));
+      }
       res.json({ success: true });
     } catch (err: any) {
       res.status(400).json({ error: err.sqlMessage || err.message });
@@ -639,81 +642,6 @@ export function createLancamentosRouter() {
         Math.max(1, Number(req.body?.add_meses || 1)),
       );
       res.json({ datas, primeira: datas[0] || '', ultima: datas[datas.length - 1] || '' });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
-  });
-
-  // --------------------------------------------------------
-  // Comprovante: envio e remoção
-  // --------------------------------------------------------
-  const pastaUpload = PASTA_UPLOAD;
-
-  router.post(
-    '/lancamentos/:id/comprovante',
-    express.raw({ type: '*/*', limit: '15mb' }),
-    async (req: Request, res: Response) => {
-      try {
-        const idEmp = tenantId(req);
-        const id = Number(req.params.id);
-
-        const [existe] = await pool.query<any[]>('SELECT Id FROM lancamentos WHERE Id = ? AND id_emp = ?', [id, idEmp]);
-        if (!existe.length) return res.status(404).json({ error: 'Lançamento não encontrado nesta conta.' });
-
-        const corpo = req.body as Buffer;
-        if (!Buffer.isBuffer(corpo) || !corpo.length) {
-          return res.status(400).json({ error: 'Nenhum arquivo foi recebido.' });
-        }
-
-        // O nome original só entra na extensão: o arquivo gravado recebe um nome próprio
-        const original = String(req.header('x-nome-arquivo') || 'comprovante');
-        const extensao = (path.extname(original) || '.bin').toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 8);
-        const nome = `comp_${idEmp}_${id}_${Date.now()}${extensao}`;
-
-        try {
-          fs.mkdirSync(pastaUpload, { recursive: true });
-          fs.writeFileSync(path.join(pastaUpload, nome), corpo);
-        } catch (erroDisco: any) {
-          // Em hospedagem sem disco gravável (Vercel, por exemplo) não há onde
-          // guardar o arquivo: melhor dizer isso do que devolver um erro solto.
-          if (['EROFS', 'EACCES', 'EPERM'].includes(erroDisco?.code)) {
-            return res.status(501).json({
-              error:
-                'Este servidor não tem disco para guardar comprovantes. ' +
-                'Rode o sistema numa máquina com disco gravável ou configure um armazenamento externo.',
-            });
-          }
-          throw erroDisco;
-        }
-
-        const link = `/uploads/${nome}`;
-        await pool.query('UPDATE lancamentos SET comprovante_link = ? WHERE Id = ? AND id_emp = ?', [link, id, idEmp]);
-
-        res.json({ success: true, link });
-      } catch (err: any) {
-        res.status(400).json({ error: err.message });
-      }
-    },
-  );
-
-  router.delete('/lancamentos/:id/comprovante', async (req: Request, res: Response) => {
-    try {
-      const idEmp = tenantId(req);
-      const id = Number(req.params.id);
-      const [linhas] = await pool.query<any[]>(
-        'SELECT comprovante_link FROM lancamentos WHERE Id = ? AND id_emp = ?',
-        [id, idEmp],
-      );
-      if (!linhas.length) return res.status(404).json({ error: 'Lançamento não encontrado nesta conta.' });
-
-      const link = String(linhas[0].comprovante_link || '');
-      if (link.startsWith('/uploads/')) {
-        // basename evita que um valor manipulado no banco aponte para fora da pasta
-        const arquivo = path.join(pastaUpload, path.basename(link));
-        fs.promises.unlink(arquivo).catch(() => {});
-      }
-      await pool.query("UPDATE lancamentos SET comprovante_link = '' WHERE Id = ? AND id_emp = ?", [id, idEmp]);
-      res.json({ success: true });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }

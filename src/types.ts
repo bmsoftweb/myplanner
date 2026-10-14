@@ -198,7 +198,7 @@ export interface Lancamento {
   descricao_limite: string;
   id_meta: number;
   descricao_meta: string;
-  comprovante_link: string;
+  qtd_anexos: number;
   recorrente: string;
 }
 

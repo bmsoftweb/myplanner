@@ -50,11 +50,10 @@ instância assinou o cookie com uma chave diferente. Gere um com:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Duas coisas que só funcionam onde há disco gravável:
-
-- **Comprovantes** dos lançamentos são gravados em `uploads/`. Na Vercel o disco
-  é somente leitura e o anexo responde com um aviso claro em vez de falhar solto.
-  Para ter anexos lá, é preciso um armazenamento externo (Vercel Blob, S3).
+- **Anexos** dos lançamentos (comprovantes e outros documentos) ficam no Vercel
+  Blob privado `bmsoftweb-myplanner` (`server/anexos.ts`, tabela
+  `lancamentos_anexos`). O navegador envia direto para o Blob e o arquivo só é
+  lido pelo servidor, que confere a conta. Precisa de `BLOB_READ_WRITE_TOKEN`.
 - O bundle de `npm run build` sai em `build/`, e não em `dist/`: o `dist/` é
   publicado como estático e o `server.cjs` (com sourcemap) ficaria acessível.
 
