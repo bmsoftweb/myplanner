@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus, Pencil, Trash2, Repeat, Paperclip, FileDown, RefreshCw, Search,
   ChevronLeft, ChevronRight, Loader2, AlertCircle, Inbox, Save, X, CalendarDays,
-  ArrowUp, ArrowDown, CheckCircle2, Circle, ChartColumn,
+  ArrowUp, ArrowDown, CheckCircle2, Circle, ChartColumn, SlidersHorizontal, Eraser,
 } from 'lucide-react';
 import { CombosLancamentos, FiltrosLancamentos } from '../services/api';
 import {
@@ -141,9 +141,21 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
     [d1, d2, documento, historicoFiltro, idBancoFiltro, idCategoriaFiltro, tipoDocFiltro, comCartao, comPrevisao],
   );
 
-  // Só recarrega ao clicar em Filtrar ou ao trocar de período — não a cada tecla
+  // Só recarrega ao aplicar a busca ou ao trocar de período — não a cada tecla
   const [tokenBusca, setTokenBusca] = useState(0);
   const filtrosAplicados = useRef(filtros);
+
+  // Busca avançada: o período tem botões próprios na barra; os demais só contam no indicador
+  const [buscaAberta, setBuscaAberta] = useState(false);
+  const qtdFiltros = [documento, historicoFiltro, idCategoriaFiltro, idBancoFiltro, tipoDocFiltro].filter(Boolean).length;
+  const limparFiltros = () => {
+    setDocumento('');
+    setHistoricoFiltro('');
+    setIdCategoriaFiltro('');
+    setIdBancoFiltro('');
+    setTipoDocFiltro('');
+    setTokenBusca((t) => t + 1);
+  };
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -1071,73 +1083,166 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
 
         <span className="w-px h-6 bg-stone-200 dark:bg-stone-800" />
 
-        <div className="flex items-center gap-1.5">
-          <DateField value={d1} onChange={setD1} className={INPUT_CLASS} placeholder="Data inicial" />
-          <span className="text-xs text-stone-400">até</span>
-          <DateField value={d2} onChange={setD2} className={INPUT_CLASS} placeholder="Data final" />
-        </div>
-
-        <input
-          type="search"
-          value={documento}
-          onChange={(e) => setDocumento(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && setTokenBusca((t) => t + 1)}
-          placeholder="Documento"
-          className={`${INPUT_CLASS} w-28`}
-        />
-        <input
-          type="search"
-          value={historicoFiltro}
-          onChange={(e) => setHistoricoFiltro(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && setTokenBusca((t) => t + 1)}
-          placeholder="Histórico"
-          className={`${INPUT_CLASS} w-32`}
-        />
-        <select
-          value={idCategoriaFiltro}
-          onChange={(e) => setIdCategoriaFiltro(e.target.value)}
-          className={`${INPUT_CLASS} cursor-pointer max-w-44`}
-          title="Sub-categoria"
+        <button
+          type="button"
+          onClick={() => setBuscaAberta((a) => !a)}
+          title="Período, documento, histórico, categoria, banco e tipo"
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
+            buscaAberta || qtdFiltros > 0
+              ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300'
+              : 'border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
         >
-          <option value="">Todas as categorias</option>
-          {(combos?.subcategorias || []).map((s) => (
-            <option key={s.Id} value={s.Id}>
-              {s.descricao}
-            </option>
-          ))}
-        </select>
-        {config?.usar_bancos && (
-          <select
-            value={idBancoFiltro}
-            onChange={(e) => setIdBancoFiltro(e.target.value)}
-            className={`${INPUT_CLASS} cursor-pointer max-w-36`}
-            title="Banco"
-          >
-            <option value="">Todos os bancos</option>
-            {(combos?.bancos || []).map((b) => (
-              <option key={b.Id} value={b.Id}>
-                {b.apelido || b.descricao}
-              </option>
-            ))}
-          </select>
-        )}
-        <select
-          value={tipoDocFiltro}
-          onChange={(e) => setTipoDocFiltro(e.target.value)}
-          className={`${INPUT_CLASS} cursor-pointer max-w-36`}
-          title="Tipo do documento"
-        >
-          <option value="">Todos os tipos</option>
-          {(combos?.tiposDoc || []).map((t) => (
-            <option key={t.tipo} value={t.tipo}>
-              {t.descricao}
-            </option>
-          ))}
-        </select>
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Busca avançada</span>
+          {qtdFiltros > 0 && (
+            <span className="bg-blue-600 text-white text-[10px] font-bold px-1.5 rounded-full">{qtdFiltros}</span>
+          )}
+        </button>
 
-        {botao('Filtrar', Search, () => setTokenBusca((t) => t + 1), { destaque: true })}
         {botao('Atualizar', RefreshCw, () => setTokenBusca((t) => t + 1))}
       </div>
+
+      {/* Busca avançada: período e demais filtros, no mesmo painel das telas de cadastro */}
+      {buscaAberta && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setTokenBusca((t) => t + 1);
+          }}
+          className="border-b border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-950/50 px-4 py-3"
+        >
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span className="text-xs font-bold text-stone-800 dark:text-stone-200">Busca Avançada</span>
+              <span className="text-[11px] text-stone-500 dark:text-stone-400">Campos em branco são ignorados</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBuscaAberta(false)}
+              title="Fechar busca avançada"
+              className="p-1 rounded text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200/60 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            <div className={FIELD_CLASS}>
+              <label className={LABEL_CLASS}>Período</label>
+              <div className="flex items-center gap-1.5">
+                <DateField value={d1} onChange={setD1} className={`${INPUT_CLASS} w-full`} placeholder="Data inicial" />
+                <span className="text-xs text-stone-400">até</span>
+                <DateField value={d2} onChange={setD2} className={`${INPUT_CLASS} w-full`} placeholder="Data final" />
+              </div>
+            </div>
+            <div className={FIELD_CLASS}>
+              <label className={LABEL_CLASS}>Documento</label>
+              <input
+                type="search"
+                value={documento}
+                onChange={(e) => setDocumento(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                placeholder="Parte do documento…"
+                className={INPUT_CLASS}
+              />
+            </div>
+            <div className={FIELD_CLASS}>
+              <label className={LABEL_CLASS}>Histórico</label>
+              <input
+                type="search"
+                value={historicoFiltro}
+                onChange={(e) => setHistoricoFiltro(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                placeholder="Parte do histórico…"
+                className={INPUT_CLASS}
+              />
+            </div>
+            <div className={FIELD_CLASS}>
+              <label className={LABEL_CLASS}>Sub-categoria</label>
+              <select
+                value={idCategoriaFiltro}
+                onChange={(e) => setIdCategoriaFiltro(e.target.value)}
+                className={`${INPUT_CLASS} cursor-pointer`}
+              >
+                <option value="">Todas as categorias</option>
+                {(combos?.subcategorias || []).map((s) => (
+                  <option key={s.Id} value={s.Id}>
+                    {s.descricao}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {config?.usar_bancos && (
+              <div className={FIELD_CLASS}>
+                <label className={LABEL_CLASS}>Banco</label>
+                <select
+                  value={idBancoFiltro}
+                  onChange={(e) => setIdBancoFiltro(e.target.value)}
+                  className={`${INPUT_CLASS} cursor-pointer`}
+                >
+                  <option value="">Todos os bancos</option>
+                  {(combos?.bancos || []).map((b) => (
+                    <option key={b.Id} value={b.Id}>
+                      {b.apelido || b.descricao}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className={FIELD_CLASS}>
+              <label className={LABEL_CLASS}>Tipo do documento</label>
+              <select
+                value={tipoDocFiltro}
+                onChange={(e) => setTipoDocFiltro(e.target.value)}
+                className={`${INPUT_CLASS} cursor-pointer`}
+              >
+                <option value="">Todos os tipos</option>
+                {(combos?.tiposDoc || []).map((t) => (
+                  <option key={t.tipo} value={t.tipo}>
+                    {t.descricao}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2.5 mt-3">
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-stone-600 dark:text-stone-300 border border-stone-300 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+            >
+              <Eraser className="w-3.5 h-3.5" />
+              <span>Limpar filtros</span>
+            </button>
+            <button
+              type="submit"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-xs transition-all cursor-pointer"
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>Aplicar filtros</span>
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Resumo dos filtros quando o painel está recolhido */}
+      {!buscaAberta && qtdFiltros > 0 && (
+        <div className="px-4 py-2 border-b border-stone-200 dark:border-stone-800 bg-blue-50/60 dark:bg-blue-950/20 flex items-center justify-between gap-3">
+          <span className="text-[11px] text-blue-800 dark:text-blue-300 truncate">
+            <strong>{qtdFiltros}</strong> filtro(s) de busca avançada aplicado(s)
+          </span>
+          <button
+            type="button"
+            onClick={limparFiltros}
+            className="text-[11px] font-semibold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer shrink-0"
+          >
+            Limpar
+          </button>
+        </div>
+      )}
 
       {/* Barra de ações */}
       <div className="border-b border-stone-200 dark:border-stone-800 px-4 py-2.5 flex flex-wrap items-center gap-2">
