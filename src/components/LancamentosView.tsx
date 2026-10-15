@@ -1417,6 +1417,9 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
                         : l.mais_ou_menos === '+'
                         ? // Entrada: verde bem claro (cor opaca, porque a coluna Ações fixa herda o fundo)
                           'bg-emerald-50 dark:bg-emerald-950 hover:bg-emerald-100 dark:hover:bg-emerald-900'
+                        : l.status === 'P'
+                        ? // Conta a pagar pendente: laranja bem claro
+                          'bg-orange-50 dark:bg-orange-950 hover:bg-orange-100 dark:hover:bg-orange-900'
                         : 'bg-white dark:bg-stone-900 hover:bg-stone-50 dark:hover:bg-stone-800'
                     }`}
                   >
