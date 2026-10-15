@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus, Pencil, Trash2, Repeat, Paperclip, FileDown, RefreshCw, Search,
   ChevronLeft, ChevronRight, Loader2, AlertCircle, Inbox, Save, X, CalendarDays,
-  ArrowUp, ArrowDown, CheckCircle2, Circle, ChartColumn, SlidersHorizontal, Eraser,
+  ArrowUp, ArrowDown, CheckCircle2, Circle, ChartColumn, SlidersHorizontal, Eraser, List, CalendarRange,
 } from 'lucide-react';
 import { CombosLancamentos, FiltrosLancamentos } from '../services/api';
 import {
@@ -32,6 +32,7 @@ import { NumberField } from './NumberField';
 import { Toggle } from './Toggle';
 import { ConfirmDialog } from './ConfirmDialog';
 import { AnexosDialog } from './AnexosDialog';
+import { CalendarioMensal } from './CalendarioMensal';
 
 type Aba = 'lista' | 'form' | 'recorrente';
 
@@ -147,6 +148,7 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
 
   // Busca avançada: o período tem botões próprios na barra; os demais só contam no indicador
   const [buscaAberta, setBuscaAberta] = useState(false);
+  const [visao, setVisao] = useState<'lista' | 'mensal'>('lista');
   const qtdFiltros = [documento, historicoFiltro, idCategoriaFiltro, idBancoFiltro, tipoDocFiltro].filter(Boolean).length;
   const limparFiltros = () => {
     setDocumento('');
@@ -1083,6 +1085,34 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
 
         <span className="w-px h-6 bg-stone-200 dark:bg-stone-800" />
 
+        {/* Visão: lista ou calendário do mês */}
+        <div className="flex rounded-lg border border-stone-200 dark:border-stone-700 overflow-hidden">
+          {(
+            [
+              ['lista', 'Lista', List],
+              ['mensal', 'Mensal', CalendarRange],
+            ] as const
+          ).map(([valor, rotulo, Icone]) => (
+            <button
+              key={valor}
+              type="button"
+              onClick={() => {
+                setVisao(valor);
+                // O calendário mostra o mês inteiro do seletor
+                if (valor === 'mensal') aplicarMesAno(mes, ano);
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                visao === valor
+                  ? 'bg-blue-600 text-white'
+                  : 'text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
+              }`}
+            >
+              <Icone className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{rotulo}</span>
+            </button>
+          ))}
+        </div>
+
         <button
           type="button"
           onClick={() => setBuscaAberta((a) => !a)}
@@ -1313,6 +1343,17 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
             <span>{erro}</span>
           </div>
+        ) : visao === 'mensal' ? (
+          <CalendarioMensal
+            linhas={linhas}
+            mes={mes}
+            ano={ano}
+            onDia={(dia) => {
+              setVisao('lista');
+              setD1(dia);
+              setD2(dia);
+            }}
+          />
         ) : carregando && !linhas.length ? (
           <div className="py-20 flex flex-col items-center gap-3 text-stone-400">
             <Loader2 className="w-6 h-6 animate-spin" />
