@@ -1113,10 +1113,17 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
           ))}
         </div>
 
+        {/* Período sempre à vista: é o filtro mais usado */}
+        <div className="flex items-center gap-1.5">
+          <DateField value={d1} onChange={setD1} className={`${INPUT_CLASS} w-32`} placeholder="Data inicial" />
+          <span className="text-xs text-stone-400">até</span>
+          <DateField value={d2} onChange={setD2} className={`${INPUT_CLASS} w-32`} placeholder="Data final" />
+        </div>
+
         <button
           type="button"
           onClick={() => setBuscaAberta((a) => !a)}
-          title="Período, documento, histórico, categoria, banco e tipo"
+          title="Documento, histórico, categoria, banco e tipo"
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
             buscaAberta || qtdFiltros > 0
               ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300'
@@ -1159,14 +1166,6 @@ export const LancamentosView: React.FC<LancamentosViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            <div className={FIELD_CLASS}>
-              <label className={LABEL_CLASS}>Período</label>
-              <div className="flex items-center gap-1.5">
-                <DateField value={d1} onChange={setD1} className={`${INPUT_CLASS} w-full`} placeholder="Data inicial" />
-                <span className="text-xs text-stone-400">até</span>
-                <DateField value={d2} onChange={setD2} className={`${INPUT_CLASS} w-full`} placeholder="Data final" />
-              </div>
-            </div>
             <div className={FIELD_CLASS}>
               <label className={LABEL_CLASS}>Documento</label>
               <input
